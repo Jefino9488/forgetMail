@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forgetmail"
+version = "0.1.0"
+description = "Linux-native Gmail to Telegram signal bridge"
+readme = "refrences.txt"
+requires-python = ">=3.11"
+dependencies = [
+	"google-auth-oauthlib>=1.2",
+	"google-auth-httplib2>=0.2",
+	"google-api-python-client>=2.120",
+	"python-telegram-bot>=21.0",
+	"httpx>=0.27",
+	"keyring>=25.0",
+	"tomli-w>=1.0",
+]
+
+[project.scripts]
+forgetMail = "forgetmail.cli:main"

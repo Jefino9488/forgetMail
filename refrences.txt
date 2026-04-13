@@ -1,0 +1,343 @@
+Project Overview: forgetMail
+You are building a Linux-native automation bridge called `forgetMail` that shifts your primary email interaction from a browser to a Telegram bot. By periodically polling the Gmail API, the tool uses an LLM to distinguish high-priority "real signals" from digital noise, sending you a concise summary only when action is needed. The bot is fully interactive, featuring inline buttons that allow you to reply to threads or schedule meetings in Google Calendar directly from the chat interface, effectively making your email workflow invisible and event-driven.
+From a technical and distribution standpoint, this project is structured as a professional CLI tool and a native Arch Linux package. It leverages a Python backend with a `pyproject.toml` entry point, allowing users to run a simple `forgetMail --auth` command to handle Google OAuth and Telegram configuration. By wrapping the project in a PKGBUILD, you ensure seamless integration with systemd as a background service, providing a clean installation and update path that aligns with your preference for project-based learning and Arch-based distributions like CachyOS.
+
+Here's the full project plan for `forgetMail` — broken into architecture, phases, and components.Now the phased build plan, each phase fully self-contained and shippable:---
+
+## Project structure
+
+```
+forgetMail/
+├── pyproject.toml
+├── PKGBUILD
+├── forgetmail.service          # systemd unit
+├── config.example.toml
+└── src/
+    └── forgetmail/
+        ├── __init__.py
+        ├── cli.py              # entry point, --auth flag
+        ├── auth/
+        │   ├── google.py       # OAuth2 flow, token refresh
+        │   └── telegram.py     # bot token validation
+        ├── poller.py           # Gmail API polling loop
+        ├── classifier.py       # LLM signal/noise scoring
+        ├── dispatcher.py       # reply, schedule, archive actions
+        ├── bot.py              # python-telegram-bot handler
+        ├── calendar_client.py  # Google Calendar event creation
+        └── store.py            # SQLite state (seen IDs, threads)
+```
+
+---
+
+## Key technical decisions
+
+**Gmail polling** — use `history.list` with a stored `historyId` rather than re-fetching all unread mail each tick. This gives you incremental deltas and avoids quota exhaustion. Poll every 2–5 minutes via `asyncio.sleep` inside the daemon.
+
+**LLM classifier** — one API call per batch of new messages, not one per email. Pass a structured JSON array of `{from, subject, snippet}` objects and ask the model to return a scored list. This keeps latency and cost low. Prompt should define "signal" explicitly: meeting requests, direct questions, time-sensitive asks — not newsletters, receipts, or GitHub notifications.
+
+**Telegram bot** — use `python-telegram-bot` in webhook mode when deployed, polling mode during dev. Each notification message carries two `InlineKeyboardButton`s: **Reply** and **Schedule**. Clicking either opens a follow-up prompt handled by a `CallbackQueryHandler`.
+
+**State store** — SQLite with three tables: `seen_messages(id, thread_id, processed_at)`, `pending_actions(callback_id, thread_id, action_type, created_at)`, `config_cache(key, value)`. No ORM needed — raw `sqlite3` is fine.
+
+**Config** — `~/.config/forgetmail/config.toml` for non-secret settings (poll interval, LLM model, Telegram chat ID). Secrets (OAuth tokens, API keys) go in the system keyring via `keyring` library, with an env-var fallback for headless environments.
+
+---
+
+## Phase-by-phase breakdown
+
+**Phase 1 — scaffold + auth** is the hardest phase politically: you're wiring together Google OAuth (with the consent screen dance) and a Telegram bot token into a single `forgetMail --auth` command that writes config and caches tokens. Get this right and everything else is just plumbing.
+
+**Phase 2 — poller + state store** is the reliability core. The deduplication logic in SQLite is what stops you from being spammed on restart. Implement exponential backoff on Gmail API errors here.
+
+**Phase 3 — LLM classifier + notify** is the payoff phase. The prompt is the product. Spend time on few-shot examples: show the model 3–4 "signal" emails and 3–4 "noise" emails inline. The Telegram message format here sets the UX — keep it under 5 lines per email summary.
+
+**Phase 4 — action dispatcher** is where the bot becomes truly interactive. The reply flow needs to capture free-text input after the button tap (use `ConversationHandler` states). The schedule flow should suggest a time slot pulled from Calendar's `freebusy` query and let the user confirm with one tap.
+
+**Phase 5 — systemd + PKGBUILD** wraps it all. The `.service` unit runs as the user (not root), with `Restart=on-failure` and `RestartSec=10`. The `PKGBUILD` installs the Python package via pip into a venv under `/opt/forgetmail`, drops the service unit into `/usr/lib/systemd/user/`, and adds a `post_install` message telling the user to run `forgetMail --auth` then `systemctl --user enable --now forgetmail`.
+
+
+Let me break Phase 1 into its concrete parts — everything you need before a single email gets polled.
+
+---
+
+## Phase 1 — Scaffold + Auth
+
+### What you're building
+
+A installable Python CLI package where `forgetMail --auth` runs an interactive wizard that:
+1. Opens a browser for Google OAuth2 consent
+2. Asks for a Telegram bot token + your chat ID
+3. Writes `~/.config/forgetmail/config.toml`
+4. Caches OAuth tokens securely---
+
+### 1. `pyproject.toml` — the package foundation
+
+```toml
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forgetmail"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "google-auth-oauthlib>=1.2",
+    "google-auth-httplib2>=0.2",
+    "google-api-python-client>=2.120",
+    "python-telegram-bot>=21.0",
+    "anthropic>=0.25",
+    "keyring>=25.0",
+    "tomli-w>=1.0",
+    "tomllib",       # stdlib in 3.11+
+    "aiohttp>=3.9",
+]
+
+[project.scripts]
+forgetMail = "forgetmail.cli:main"
+```
+
+`hatchling` is the cleanest modern build backend — no `setup.py` noise. The `[project.scripts]` entry is what gives you the `forgetMail` command after `pip install -e .` or `makepkg`.
+
+---
+
+### 2. `cli.py` — the entry point
+
+```python
+# src/forgetmail/cli.py
+import argparse
+import sys
+from forgetmail.auth.wizard import run_auth_wizard
+from forgetmail.daemon import run_daemon
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="forgetMail",
+        description="Gmail → LLM → Telegram bridge"
+    )
+    parser.add_argument(
+        "--auth",
+        action="store_true",
+        help="Run the interactive auth setup wizard"
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Validate existing credentials and config"
+    )
+    args = parser.parse_args()
+
+    if args.auth:
+        run_auth_wizard()
+    elif args.check:
+        from forgetmail.auth.wizard import validate_all
+        validate_all()
+    else:
+        run_daemon()   # what systemd calls
+```
+
+`run_daemon()` is a stub for now — Phase 2 fills it in. The key thing is the entry point exists and routes correctly.
+
+---
+
+### 3. `auth/google.py` — OAuth2 flow
+
+```python
+# src/forgetmail/auth/google.py
+import json
+import webbrowser
+from pathlib import Path
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+import keyring
+
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/calendar.events",
+]
+SERVICE = "forgetmail"
+CRED_KEY = "google_credentials"
+
+def get_credentials(client_secret_path: Path) -> Credentials:
+    """Load cached creds or run the OAuth2 consent flow."""
+    raw = keyring.get_password(SERVICE, CRED_KEY)
+    if raw:
+        creds = Credentials.from_authorized_user_info(json.loads(raw), SCOPES)
+        if creds.valid:
+            return creds
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            _cache(creds)
+            return creds
+
+    # First-time flow
+    flow = InstalledAppFlow.from_client_secrets_file(
+        str(client_secret_path), SCOPES
+    )
+    # Try local server first (opens browser), fall back to console
+    try:
+        creds = flow.run_local_server(port=0, open_browser=True)
+    except Exception:
+        creds = flow.run_console()
+
+    _cache(creds)
+    return creds
+
+def _cache(creds: Credentials):
+    keyring.set_password(SERVICE, CRED_KEY, creds.to_json())
+```
+
+Two things worth noting: `gmail.modify` scope (not `readonly`) because Phase 4 needs to send replies, and `keyring` stores the token JSON in the system secret store (KWallet/GNOME Keyring on Arch) rather than a plaintext file.
+
+---
+
+### 4. `auth/telegram.py` — bot token + chat ID discovery
+
+```python
+# src/forgetmail/auth/telegram.py
+import httpx
+
+TELEGRAM_API = "https://api.telegram.org/bot{token}"
+
+def validate_token(token: str) -> dict:
+    """Call getMe — returns bot info or raises."""
+    r = httpx.get(f"https://api.telegram.org/bot{token}/getMe", timeout=10)
+    r.raise_for_status()
+    data = r.json()
+    if not data.get("ok"):
+        raise ValueError(f"Telegram rejected token: {data}")
+    return data["result"]
+
+def get_chat_id(token: str) -> int:
+    """
+    Poll getUpdates once to capture the chat ID from the most recent message.
+    User must send any message to the bot first.
+    """
+    r = httpx.get(
+        f"https://api.telegram.org/bot{token}/getUpdates",
+        params={"limit": 1, "timeout": 0},
+        timeout=15,
+    )
+    r.raise_for_status()
+    updates = r.json().get("result", [])
+    if not updates:
+        raise RuntimeError(
+            "No messages found. Send any message to your bot first, then re-run."
+        )
+    return updates[-1]["message"]["chat"]["id"]
+```
+
+The chat ID discovery is a common stumbling block — the pattern here asks the user to send a `/start` to their bot before running `--auth`, then polls `getUpdates` once to capture it automatically.
+
+---
+
+### 5. `auth/wizard.py` — the interactive wizard
+
+```python
+# src/forgetmail/auth/wizard.py
+from pathlib import Path
+import tomllib, tomli_w
+from forgetmail.auth.google import get_credentials
+from forgetmail.auth.telegram import validate_token, get_chat_id
+
+CONFIG_DIR = Path.home() / ".config" / "forgetmail"
+CONFIG_PATH = CONFIG_DIR / "config.toml"
+
+def run_auth_wizard():
+    print("\n── forgetMail setup ──────────────────────")
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+    # ── Google ──────────────────────────────────
+    print("\n[1/2] Google OAuth2")
+    secret_path = Path(
+        input("  Path to your client_secret.json: ").strip()
+    ).expanduser()
+    if not secret_path.exists():
+        raise FileNotFoundError(f"Not found: {secret_path}")
+    creds = get_credentials(secret_path)
+    print("  ✓ Google credentials cached")
+
+    # ── Telegram ────────────────────────────────
+    print("\n[2/2] Telegram bot")
+    print("  → Open @BotFather, create a bot, copy the token")
+    print("  → Send any message to your new bot, then come back")
+    token = input("  Bot token: ").strip()
+    bot_info = validate_token(token)
+    print(f"  ✓ Connected to @{bot_info['username']}")
+    chat_id = get_chat_id(token)
+    print(f"  ✓ Chat ID detected: {chat_id}")
+
+    # ── Write config ─────────────────────────────
+    config = {
+        "telegram": {"token": token, "chat_id": chat_id},
+        "gmail": {"poll_interval_seconds": 180},
+        "llm": {"provider": "anthropic", "model": "claude-sonnet-4-20250514"},
+        "log": {"level": "INFO"},
+    }
+    with open(CONFIG_PATH, "wb") as f:
+        tomli_w.dump(config, f)
+    print(f"\n  ✓ Config written to {CONFIG_PATH}")
+
+    validate_all()
+    print("\n── Setup complete. Run: systemctl --user start forgetmail\n")
+
+def validate_all():
+    """Smoke-test all live connections using saved config."""
+    if not CONFIG_PATH.exists():
+        raise FileNotFoundError("Run forgetMail --auth first")
+    with open(CONFIG_PATH, "rb") as f:
+        cfg = tomllib.load(f)
+
+    # Test Gmail
+    from forgetmail.auth.google import get_credentials
+    from googleapiclient.discovery import build
+    # credentials already cached — this is a no-op on the OAuth side
+    creds = get_credentials(Path("/dev/null"))  # won't be used; cached creds loaded
+    svc = build("gmail", "v1", credentials=creds)
+    svc.users().getProfile(userId="me").execute()
+    print("  ✓ Gmail API reachable")
+
+    # Test Telegram
+    from forgetmail.auth.telegram import validate_token
+    validate_token(cfg["telegram"]["token"])
+    print("  ✓ Telegram API reachable")
+```
+
+---
+
+### 6. Google Cloud Console setup (the manual step)
+
+Before `--auth` can work, the user needs a `client_secret.json`. The wizard asks for its path. Here's the minimum setup:
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → New project → `forgetmail`
+2. Enable **Gmail API** and **Google Calendar API**
+3. OAuth consent screen → External → add your own Gmail as a test user
+4. Credentials → Create OAuth client ID → **Desktop app** → download JSON → save as `~/client_secret.json`
+
+This is a one-time step and can be documented in the `README` or printed by `forgetMail --auth` itself.
+
+---
+
+### 7. Project layout after Phase 1
+
+```
+src/forgetmail/
+├── __init__.py
+├── cli.py
+├── daemon.py          # stub: just prints "daemon not implemented yet"
+└── auth/
+    ├── __init__.py
+    ├── google.py
+    ├── telegram.py
+    └── wizard.py
+```
+
+### Phase 1 exit criteria
+
+- `pip install -e .` works cleanly
+- `forgetMail --auth` runs end-to-end, writes config, and exits with `✓` for both APIs
+- `forgetMail --check` re-validates without re-running the flow
+- `forgetMail` (no flags) prints `daemon not implemented yet` without crashing
+
+That's a fully testable, self-contained checkpoint before a single line of polling logic exists. Want me to generate Phase 2 — the Gmail poller and SQLite state store?
