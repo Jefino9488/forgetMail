@@ -19,6 +19,7 @@ class GmailClient:
         path: str,
         *,
         params: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
         retries: int = 3,
     ) -> dict[str, Any]:
         last_error: Exception | None = None
@@ -28,6 +29,7 @@ class GmailClient:
                     method,
                     f"{self._base}{path}",
                     params=params,
+                    json=json_body,
                     timeout=self._timeout_seconds,
                 )
                 response.raise_for_status()
@@ -71,4 +73,20 @@ class GmailClient:
             "GET",
             f"/messages/{message_id}",
             params={"format": "full"},
+        )
+
+    def modify_message_labels(
+        self,
+        message_id: str,
+        *,
+        add_labels: list[str] | None = None,
+        remove_labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/messages/{message_id}/modify",
+            json_body={
+                "addLabelIds": add_labels or [],
+                "removeLabelIds": remove_labels or [],
+            },
         )
