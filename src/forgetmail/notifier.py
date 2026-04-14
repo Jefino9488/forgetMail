@@ -10,6 +10,9 @@ BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "help", "description": "Show available bot commands"},
     {"command": "status", "description": "Show daemon and classifier status"},
     {"command": "signals", "description": "Show recent detected important signals"},
+    {"command": "watchfor", "description": "Add watch context: /watchFor <context> [boost]"},
+    {"command": "watchlist", "description": "List active watch rules"},
+    {"command": "unwatch", "description": "Delete watch rule: /unwatch <id>"},
     {"command": "run", "description": "Run one immediate poll cycle"},
 ]
 
@@ -54,11 +57,17 @@ def configure_bot_commands(token: str) -> None:
     _post(token, "setMyCommands", {"commands": BOT_COMMANDS}, timeout=15)
 
 
-def fetch_updates(token: str, offset: int | None, limit: int = 20) -> list[dict[str, Any]]:
-    params: dict[str, Any] = {"limit": limit, "timeout": 0}
+def fetch_updates(
+    token: str,
+    offset: int | None,
+    limit: int = 20,
+    poll_timeout_seconds: int = 2,
+) -> list[dict[str, Any]]:
+    timeout_value = max(0, int(poll_timeout_seconds))
+    params: dict[str, Any] = {"limit": limit, "timeout": timeout_value}
     if offset is not None:
         params["offset"] = offset
-    data = _get(token, "getUpdates", params, timeout=20)
+    data = _get(token, "getUpdates", params, timeout=max(10, timeout_value + 5))
     updates = data.get("result", [])
     if not isinstance(updates, list):
         return []
@@ -77,23 +86,45 @@ def send_text_message(token: str, chat_id: int, text: str) -> None:
     )
 
 
+def answer_callback_query(token: str, callback_query_id: str, text: str) -> None:
+    _post(
+        token,
+        "answerCallbackQuery",
+        {
+            "callback_query_id": callback_query_id,
+            "text": text,
+            "show_alert": False,
+        },
+        timeout=10,
+    )
+
+
+def _build_summary(subject: str, reason: str) -> str:
+    subject_value = " ".join(subject.split())
+    reason_value = " ".join(reason.split())
+    summary = f"{subject_value}. {reason_value}".strip(" .")
+    if len(summary) > 220:
+        return summary[:217].rstrip() + "..."
+    return summary
+
+
 def send_signal_notifications(token: str, chat_id: int, signals: list[SignalNotification]) -> set[str]:
     sent_ids: set[str] = set()
     logging.debug("Notifier: sending signals=%s chat_id=%s", len(signals), chat_id)
     for signal in signals:
         logging.debug("Notifier: sending message_id=%s thread_id=%s", signal.message_id, signal.thread_id)
+        summary = _build_summary(signal.subject, signal.reason)
         text = (
-            "Important email detected\n"
+            "Important email summary\n"
             f"From: {signal.sender}\n"
-            f"Subject: {signal.subject}\n"
-            f"Why: {signal.reason}\n"
+            f"Summary: {summary}\n"
             f"Score: {signal.score:.2f}"
         )
         reply_markup = {
             "inline_keyboard": [
                 [
                     {"text": "Reply", "callback_data": f"reply:{signal.thread_id}"},
-                    {"text": "Schedule", "callback_data": f"schedule:{signal.thread_id}"},
+                    {"text": "Not important", "callback_data": f"notimportant:{signal.thread_id}"},
                 ]
             ]
         }
