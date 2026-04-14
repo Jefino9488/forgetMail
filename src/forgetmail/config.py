@@ -16,6 +16,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "gmail": {
         "poll_interval_seconds": 180,
+        "idle_poll_interval_seconds": 180,
         "lookback_days": 7,
         "max_messages_per_poll": 30,
     },
@@ -24,10 +25,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "model": "",
         "base_url": "http://127.0.0.1:11434",
         "importance_threshold": 0.65,
-        "timeout_seconds": 90,
+        "timeout_seconds": 180,
+        "batch_size": 8,
     },
     "log": {
         "level": "INFO",
+        "file": "",
+        "http_debug": False,
     },
 }
 
@@ -84,6 +88,10 @@ def validate_config(config: dict[str, Any]) -> None:
     if not isinstance(interval, int) or interval < 30:
         raise ConfigError("gmail.poll_interval_seconds must be an integer >= 30.")
 
+    idle_interval = config["gmail"].get("idle_poll_interval_seconds", interval)
+    if not isinstance(idle_interval, int) or idle_interval < 30:
+        raise ConfigError("gmail.idle_poll_interval_seconds must be an integer >= 30.")
+
     lookback_days = config["gmail"].get("lookback_days")
     if not isinstance(lookback_days, int) or lookback_days < 1:
         raise ConfigError("gmail.lookback_days must be an integer >= 1.")
@@ -117,3 +125,19 @@ def validate_config(config: dict[str, Any]) -> None:
     timeout_seconds = config["llm"].get("timeout_seconds")
     if not isinstance(timeout_seconds, int) or timeout_seconds < 5:
         raise ConfigError("llm.timeout_seconds must be an integer >= 5.")
+
+    batch_size = config["llm"].get("batch_size")
+    if not isinstance(batch_size, int) or batch_size < 1:
+        raise ConfigError("llm.batch_size must be an integer >= 1.")
+
+    log_level = config["log"].get("level")
+    if not isinstance(log_level, str) or not log_level.strip():
+        raise ConfigError("log.level must be a non-empty string.")
+
+    log_file = config["log"].get("file", "")
+    if not isinstance(log_file, str):
+        raise ConfigError("log.file must be a string.")
+
+    http_debug = config["log"].get("http_debug", False)
+    if not isinstance(http_debug, bool):
+        raise ConfigError("log.http_debug must be true or false.")
