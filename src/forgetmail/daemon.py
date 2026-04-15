@@ -7,6 +7,7 @@ from typing import Any
 from aiogram.types import CallbackQuery, Update
 
 from forgetmail.auth.telegram import get_bot_token
+from forgetmail.embedding_client import EmbeddingClient, EmbeddingError, candidate_to_embedding_text
 from forgetmail.classifier import LLMError
 from forgetmail.classifier import classify_messages
 from forgetmail.config import load_config
@@ -26,6 +27,7 @@ from forgetmail.poller import (
     mark_messages_read,
 )
 from forgetmail.store import StateStore
+from forgetmail.vector_store import VectorStore, VectorStoreError
 
 OMITTED_REASON = "Classifier omitted this message"
 
@@ -111,6 +113,7 @@ def _format_recent_signals(rows: list[dict[str, str | float]]) -> str:
 def _format_status(config: dict[str, Any], store: StateStore, last_cycle: dict[str, int] | None) -> str:
     stats = store.stats()
     llm_cfg = config["llm"]
+    embeddings_cfg = config.get("embeddings", {})
     gmail_cfg = config["gmail"]
     lines = [
         "forgetMail status:",
@@ -121,6 +124,9 @@ def _format_status(config: dict[str, Any], store: StateStore, last_cycle: dict[s
         f"- llm_provider: {llm_cfg['provider']}",
         f"- llm_model: {llm_cfg['model']}",
         f"- importance_threshold: {llm_cfg['importance_threshold']}",
+        f"- embeddings_enabled: {bool(embeddings_cfg.get('enabled', False))}",
+        f"- embeddings_model: {embeddings_cfg.get('model', 'n/a')}",
+        f"- vector_upsert_enabled: {bool(embeddings_cfg.get('enable_vector_upsert', False))}",
         f"- seen_messages: {stats['seen_messages']}",
         f"- signal_events: {stats['signal_events']}",
         f"- classification_events: {stats['classification_events']}",
@@ -394,6 +400,7 @@ def _process_bot_commands(
 def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str, int]:
     gmail_cfg = config["gmail"]
     llm_cfg = config["llm"]
+    embeddings_cfg = config.get("embeddings", {})
     threshold = float(llm_cfg.get("importance_threshold", 0.65))
     logging.debug(
         "Poll settings: lookback_days=%s max_messages_per_poll=%s threshold=%.2f model=%s provider=%s",
@@ -458,6 +465,24 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
             "omitted_for_retry": 0,
             "llm_failed": 0,
         }
+
+    vector_store: VectorStore | None = None
+    embeddings_enabled = bool(embeddings_cfg.get("enabled", False))
+    vector_upsert_enabled = bool(embeddings_cfg.get("enable_vector_upsert", True))
+    if embeddings_enabled and vector_upsert_enabled:
+        try:
+            embedding_client = EmbeddingClient.from_config(embeddings_cfg)
+            vector_store = VectorStore.from_config(embeddings_cfg)
+            embedding_texts = [candidate_to_embedding_text(item) for item in candidates]
+            embeddings = embedding_client.embed_texts(embedding_texts)
+            upserted = vector_store.upsert_email_candidates(candidates, embeddings)
+            logging.debug("Vector upsert completed rows=%s", upserted)
+        except (EmbeddingError, VectorStoreError, Exception) as exc:
+            logging.warning(
+                "Embedding/vector upsert failed; continuing without vector updates: %s",
+                exc,
+            )
+            vector_store = None
 
     try:
         classifications = classify_messages(candidates, llm_cfg)
@@ -581,6 +606,15 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
 
     store.record_classification_events(classification_rows)
     store.record_watch_rule_events(watch_rule_events)
+    if vector_store is not None:
+        try:
+            updated = vector_store.update_classification_results(classification_rows)
+            logging.debug("Vector classification metadata updated rows=%s", updated)
+        except Exception as exc:
+            logging.warning(
+                "Vector metadata update failed; continuing without vector metadata updates: %s",
+                exc,
+            )
     logging.debug("Recorded classification rows=%s; proceeding with signal filtering", len(classification_rows))
 
     adjusted_signals: list[SignalNotification] = []

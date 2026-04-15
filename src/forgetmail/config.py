@@ -28,6 +28,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "timeout_seconds": 180,
         "batch_size": 8,
     },
+    "embeddings": {
+        "enabled": False,
+        "enable_vector_upsert": True,
+        "enable_vector_query": False,
+        "provider": "ollama",
+        "model": "nomic-embed-text",
+        "base_url": "http://127.0.0.1:11434",
+        "batch_size": 32,
+        "timeout_seconds": 30,
+        "persist_path": str(CONFIG_DIR / "chroma"),
+        "collection": "emails",
+    },
     "log": {
         "level": "INFO",
         "file": "",
@@ -75,7 +87,7 @@ def merge_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_config(config: dict[str, Any]) -> None:
-    required_sections = ("telegram", "gmail", "llm", "log")
+    required_sections = ("telegram", "gmail", "llm", "embeddings", "log")
     for section in required_sections:
         if section not in config or not isinstance(config[section], dict):
             raise ConfigError(f"Missing or invalid [{section}] section in config.")
@@ -129,6 +141,51 @@ def validate_config(config: dict[str, Any]) -> None:
     batch_size = config["llm"].get("batch_size")
     if not isinstance(batch_size, int) or batch_size < 1:
         raise ConfigError("llm.batch_size must be an integer >= 1.")
+
+    embeddings_cfg = config["embeddings"]
+
+    enabled = embeddings_cfg.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ConfigError("embeddings.enabled must be true or false.")
+
+    enable_vector_upsert = embeddings_cfg.get("enable_vector_upsert", True)
+    if not isinstance(enable_vector_upsert, bool):
+        raise ConfigError("embeddings.enable_vector_upsert must be true or false.")
+
+    enable_vector_query = embeddings_cfg.get("enable_vector_query", False)
+    if not isinstance(enable_vector_query, bool):
+        raise ConfigError("embeddings.enable_vector_query must be true or false.")
+
+    embedding_provider = embeddings_cfg.get("provider")
+    if not isinstance(embedding_provider, str) or not embedding_provider.strip():
+        raise ConfigError("embeddings.provider must be a non-empty string.")
+    embedding_provider_name = embedding_provider.strip().lower()
+    if embedding_provider_name != "ollama":
+        raise ConfigError("embeddings.provider currently supports only 'ollama'.")
+
+    embedding_model = embeddings_cfg.get("model")
+    if not isinstance(embedding_model, str) or not embedding_model.strip():
+        raise ConfigError("embeddings.model must be a non-empty string.")
+
+    embedding_base_url = embeddings_cfg.get("base_url")
+    if not isinstance(embedding_base_url, str) or not embedding_base_url.strip():
+        raise ConfigError("embeddings.base_url must be a non-empty string.")
+
+    embedding_timeout_seconds = embeddings_cfg.get("timeout_seconds")
+    if not isinstance(embedding_timeout_seconds, int) or embedding_timeout_seconds < 3:
+        raise ConfigError("embeddings.timeout_seconds must be an integer >= 3.")
+
+    embedding_batch_size = embeddings_cfg.get("batch_size")
+    if not isinstance(embedding_batch_size, int) or embedding_batch_size < 1:
+        raise ConfigError("embeddings.batch_size must be an integer >= 1.")
+
+    persist_path = embeddings_cfg.get("persist_path")
+    if not isinstance(persist_path, str) or not persist_path.strip():
+        raise ConfigError("embeddings.persist_path must be a non-empty string.")
+
+    collection = embeddings_cfg.get("collection")
+    if not isinstance(collection, str) or not collection.strip():
+        raise ConfigError("embeddings.collection must be a non-empty string.")
 
     log_level = config["log"].get("level")
     if not isinstance(log_level, str) or not log_level.strip():
