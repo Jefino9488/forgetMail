@@ -121,3 +121,19 @@ class VectorStore:
             n_results=max(1, int(top_k)),
             where=where,
         )
+
+    def query_similar_by_embeddings(
+        self,
+        query_embeddings: list[list[float]],
+        *,
+        top_k: int = 5,
+        where: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not query_embeddings:
+            return {"ids": [], "metadatas": [], "distances": []}
+
+        return self._collection.query(
+            query_embeddings=query_embeddings,
+            n_results=max(1, int(top_k)),
+            where=where,
+        )

@@ -32,6 +32,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enabled": False,
         "enable_vector_upsert": True,
         "enable_vector_query": False,
+        "query_top_k": 6,
+        "min_similarity_for_boost": 0.78,
+        "max_similarity_boost": 0.20,
+        "min_important_neighbors": 1,
         "provider": "ollama",
         "model": "nomic-embed-text",
         "base_url": "http://127.0.0.1:11434",
@@ -155,6 +159,22 @@ def validate_config(config: dict[str, Any]) -> None:
     enable_vector_query = embeddings_cfg.get("enable_vector_query", False)
     if not isinstance(enable_vector_query, bool):
         raise ConfigError("embeddings.enable_vector_query must be true or false.")
+
+    query_top_k = embeddings_cfg.get("query_top_k", 6)
+    if not isinstance(query_top_k, int) or query_top_k < 1:
+        raise ConfigError("embeddings.query_top_k must be an integer >= 1.")
+
+    min_similarity_for_boost = embeddings_cfg.get("min_similarity_for_boost", 0.78)
+    if not isinstance(min_similarity_for_boost, (int, float)) or not 0 <= float(min_similarity_for_boost) <= 1:
+        raise ConfigError("embeddings.min_similarity_for_boost must be a number between 0 and 1.")
+
+    max_similarity_boost = embeddings_cfg.get("max_similarity_boost", 0.20)
+    if not isinstance(max_similarity_boost, (int, float)) or not 0 <= float(max_similarity_boost) <= 1:
+        raise ConfigError("embeddings.max_similarity_boost must be a number between 0 and 1.")
+
+    min_important_neighbors = embeddings_cfg.get("min_important_neighbors", 1)
+    if not isinstance(min_important_neighbors, int) or min_important_neighbors < 1:
+        raise ConfigError("embeddings.min_important_neighbors must be an integer >= 1.")
 
     embedding_provider = embeddings_cfg.get("provider")
     if not isinstance(embedding_provider, str) or not embedding_provider.strip():
