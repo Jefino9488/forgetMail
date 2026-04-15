@@ -4,6 +4,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from aiogram.types import CallbackQuery, Update
+
 from forgetmail.auth.telegram import get_bot_token
 from forgetmail.classifier import LLMError
 from forgetmail.classifier import classify_messages
@@ -13,8 +15,10 @@ from forgetmail.notifier import (
     answer_callback_query,
     configure_bot_commands,
     fetch_updates,
+    prepare_polling_mode,
     send_signal_notifications,
     send_text_message,
+    shutdown_client,
 )
 from forgetmail.poller import (
     fetch_message_candidates,
@@ -202,27 +206,22 @@ def _handle_callback_query(
     token: str,
     store: StateStore,
     expected_chat_id: int,
-    callback_query: dict[str, Any],
+    callback_query: CallbackQuery,
 ) -> None:
-    callback_id = callback_query.get("id")
-    callback_data = callback_query.get("data")
-    message = callback_query.get("message")
-    if not isinstance(callback_id, str) or not callback_id:
+    callback_id = callback_query.id
+    callback_data = callback_query.data
+    message = callback_query.message
+    if not callback_id:
         return
     if not isinstance(callback_data, str) or not callback_data:
         answer_callback_query(token, callback_id, "Unsupported action")
         return
-    if not isinstance(message, dict):
+    chat = getattr(message, "chat", None)
+    chat_id = getattr(chat, "id", None)
+    if not isinstance(chat_id, int):
         answer_callback_query(token, callback_id, "Unsupported action")
         return
-
-    chat = message.get("chat")
-    if not isinstance(chat, dict):
-        answer_callback_query(token, callback_id, "Unsupported action")
-        return
-
-    chat_id = chat.get("id")
-    if not isinstance(chat_id, int) or chat_id != expected_chat_id:
+    if chat_id != expected_chat_id:
         answer_callback_query(token, callback_id, "Action denied")
         return
 
@@ -303,9 +302,9 @@ def _process_bot_commands(
     last_cycle: dict[str, int] | None,
 ) -> tuple[int | None, bool]:
     try:
-        updates = fetch_updates(token, offset=offset, limit=20, poll_timeout_seconds=2)
+        updates: list[Update] = fetch_updates(token, offset=offset, limit=20, poll_timeout_seconds=2)
     except Exception as exc:
-        logging.warning("Telegram getUpdates failed (will retry): %s", exc)
+        logging.warning("Telegram update polling failed (will retry): %s", exc)
         return offset, False
     if not updates:
         return offset, False
@@ -314,13 +313,13 @@ def _process_bot_commands(
     should_run = False
 
     for update in updates:
-        update_id = update.get("update_id")
+        update_id = update.update_id
         if isinstance(update_id, int):
             candidate_offset = update_id + 1
             next_offset = candidate_offset if next_offset is None else max(next_offset, candidate_offset)
 
-        callback_query = update.get("callback_query")
-        if isinstance(callback_query, dict):
+        callback_query = update.callback_query
+        if callback_query is not None:
             _handle_callback_query(
                 token=token,
                 store=store,
@@ -329,19 +328,16 @@ def _process_bot_commands(
             )
             continue
 
-        message = update.get("message")
-        if not isinstance(message, dict):
+        message = update.message
+        if message is None:
             continue
 
-        chat = message.get("chat")
-        if not isinstance(chat, dict):
-            continue
-
-        chat_id = chat.get("id")
+        chat = message.chat
+        chat_id = chat.id
         if not isinstance(chat_id, int) or chat_id != expected_chat_id:
             continue
 
-        text = message.get("text")
+        text = message.text
         if not isinstance(text, str) or not text.startswith("/"):
             continue
 
@@ -672,10 +668,15 @@ def run_daemon(debug: bool = False) -> None:
     telegram_token = get_bot_token()
     logging.debug("Telegram token loaded from secrets store.")
     try:
+        prepare_polling_mode(telegram_token, drop_pending_updates=False)
+        logging.debug("Telegram polling mode prepared (webhook disabled).")
+    except Exception:
+        logging.warning("Could not prepare Telegram polling mode.", exc_info=True)
+    try:
         configure_bot_commands(telegram_token)
         logging.debug("Telegram bot commands configured.")
     except Exception:
-        logging.warning("Could not configure Telegram bot commands via setMyCommands.", exc_info=True)
+        logging.warning("Could not configure Telegram bot commands via aiogram.", exc_info=True)
 
     stop = {"value": False}
 
@@ -698,69 +699,8 @@ def run_daemon(debug: bool = False) -> None:
     cycle = 0
     update_offset: int | None = None
     last_cycle: dict[str, int] | None = None
-    while not stop["value"]:
-        try:
-            update_offset, should_run = _process_bot_commands(
-                token=telegram_token,
-                config=config,
-                store=store,
-                expected_chat_id=chat_id,
-                offset=update_offset,
-                last_cycle=last_cycle,
-            )
-        except Exception:
-            logging.exception("Failed while processing Telegram bot commands")
-            should_run = False
-
-        if should_run:
-            logging.info("Immediate poll requested by Telegram command.")
-            try:
-                last_cycle = poll_once(config, store, telegram_token)
-                send_text_message(
-                    telegram_token,
-                    chat_id,
-                    (
-                        "Immediate cycle complete: "
-                        f"fetched={last_cycle['fetched']} unseen={last_cycle['unseen']} "
-                        f"classified={last_cycle['classified']} "
-                        f"boosted={last_cycle['boosted']} "
-                        f"signals={last_cycle['signals']} sent={last_cycle['sent']}"
-                    ),
-                )
-            except Exception:
-                logging.exception("Immediate poll failed")
-                try:
-                    send_text_message(
-                        telegram_token,
-                        chat_id,
-                        "Immediate poll failed. Check daemon logs.",
-                    )
-                except Exception:
-                    logging.exception("Failed to notify Telegram about immediate poll failure")
-
-        cycle += 1
-        logging.debug("Starting poll cycle #%s", cycle)
-        try:
-            last_cycle = poll_once(config, store, telegram_token)
-        except Exception:
-            logging.exception("Poll cycle failed")
-        if stop["value"]:
-            break
-
-        interval_seconds = _select_poll_interval_seconds(
-            active_interval_seconds=active_interval_seconds,
-            idle_interval_seconds=idle_interval_seconds,
-            last_cycle=last_cycle,
-        )
-        logging.debug("Next poll interval seconds=%s", interval_seconds)
-
-        # Keep Telegram command latency low by polling commands frequently between mail cycles.
-        next_poll_at = time.monotonic() + interval_seconds
+    try:
         while not stop["value"]:
-            remaining = next_poll_at - time.monotonic()
-            if remaining <= 0:
-                break
-
             try:
                 update_offset, should_run = _process_bot_commands(
                     token=telegram_token,
@@ -799,13 +739,77 @@ def run_daemon(debug: bool = False) -> None:
                         )
                     except Exception:
                         logging.exception("Failed to notify Telegram about immediate poll failure")
-                interval_seconds = _select_poll_interval_seconds(
-                    active_interval_seconds=active_interval_seconds,
-                    idle_interval_seconds=idle_interval_seconds,
-                    last_cycle=last_cycle,
-                )
-                logging.debug("Next poll interval seconds=%s", interval_seconds)
-                next_poll_at = time.monotonic() + interval_seconds
 
-            sleep_for = min(2.0, max(0.1, next_poll_at - time.monotonic()))
-            time.sleep(sleep_for)
+            cycle += 1
+            logging.debug("Starting poll cycle #%s", cycle)
+            try:
+                last_cycle = poll_once(config, store, telegram_token)
+            except Exception:
+                logging.exception("Poll cycle failed")
+            if stop["value"]:
+                break
+
+            interval_seconds = _select_poll_interval_seconds(
+                active_interval_seconds=active_interval_seconds,
+                idle_interval_seconds=idle_interval_seconds,
+                last_cycle=last_cycle,
+            )
+            logging.debug("Next poll interval seconds=%s", interval_seconds)
+
+            # Keep Telegram command latency low by polling commands frequently between mail cycles.
+            next_poll_at = time.monotonic() + interval_seconds
+            while not stop["value"]:
+                remaining = next_poll_at - time.monotonic()
+                if remaining <= 0:
+                    break
+
+                try:
+                    update_offset, should_run = _process_bot_commands(
+                        token=telegram_token,
+                        config=config,
+                        store=store,
+                        expected_chat_id=chat_id,
+                        offset=update_offset,
+                        last_cycle=last_cycle,
+                    )
+                except Exception:
+                    logging.exception("Failed while processing Telegram bot commands")
+                    should_run = False
+
+                if should_run:
+                    logging.info("Immediate poll requested by Telegram command.")
+                    try:
+                        last_cycle = poll_once(config, store, telegram_token)
+                        send_text_message(
+                            telegram_token,
+                            chat_id,
+                            (
+                                "Immediate cycle complete: "
+                                f"fetched={last_cycle['fetched']} unseen={last_cycle['unseen']} "
+                                f"classified={last_cycle['classified']} "
+                                f"boosted={last_cycle['boosted']} "
+                                f"signals={last_cycle['signals']} sent={last_cycle['sent']}"
+                            ),
+                        )
+                    except Exception:
+                        logging.exception("Immediate poll failed")
+                        try:
+                            send_text_message(
+                                telegram_token,
+                                chat_id,
+                                "Immediate poll failed. Check daemon logs.",
+                            )
+                        except Exception:
+                            logging.exception("Failed to notify Telegram about immediate poll failure")
+                    interval_seconds = _select_poll_interval_seconds(
+                        active_interval_seconds=active_interval_seconds,
+                        idle_interval_seconds=idle_interval_seconds,
+                        last_cycle=last_cycle,
+                    )
+                    logging.debug("Next poll interval seconds=%s", interval_seconds)
+                    next_poll_at = time.monotonic() + interval_seconds
+
+                sleep_for = min(2.0, max(0.1, next_poll_at - time.monotonic()))
+                time.sleep(sleep_for)
+    finally:
+        shutdown_client()

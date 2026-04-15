@@ -6,7 +6,13 @@ import time
 from pathlib import Path
 
 from forgetmail.auth.google import DEFAULT_CLIENT_SECRET_PATH, get_credentials
-from forgetmail.auth.telegram import cache_bot_token, detect_chat_id, get_bot_token, validate_token
+from forgetmail.auth.telegram import (
+    cache_bot_token,
+    detect_chat_id,
+    ensure_polling_mode,
+    get_bot_token,
+    validate_token,
+)
 from forgetmail.config import CONFIG_PATH, ensure_config_dir, load_config, save_config
 from forgetmail.gmail_client import GmailClient
 from forgetmail.llm import cache_llm_api_key, detect_ollama_models, validate_llm_connection
@@ -40,6 +46,22 @@ def _import_client_secret() -> Path:
     except OSError:
         pass
     return target
+
+
+def _detect_chat_id_with_retry(token: str, attempts: int = 5, delay_seconds: int = 3) -> int:
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return detect_chat_id(token)
+        except Exception as exc:
+            last_error = exc
+            if attempt < attempts:
+                print(
+                    "No Telegram messages found yet. Send /start (or any message) to your bot, "
+                    f"then waiting {delay_seconds}s before retry ({attempt}/{attempts - 1})..."
+                )
+                time.sleep(delay_seconds)
+    raise RuntimeError(f"Could not detect Telegram chat_id: {last_error}")
 
 
 def _onboard_llm() -> dict[str, object]:
@@ -93,7 +115,8 @@ def run_onboarding_wizard() -> None:
     token = _prompt_non_empty("Bot token: ")
     bot_info = validate_token(token)
     cache_bot_token(token)
-    chat_id = detect_chat_id(token)
+    ensure_polling_mode(token, drop_pending_updates=False)
+    chat_id = _detect_chat_id_with_retry(token)
     print(f"Telegram bot validated: @{bot_info['username']}")
     print(f"Detected chat_id: {chat_id}")
 
