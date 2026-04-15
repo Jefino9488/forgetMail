@@ -27,6 +27,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "importance_threshold": 0.65,
         "timeout_seconds": 180,
         "batch_size": 8,
+        "prompt_style": "caveman",
+        "temperature": 0.1,
+        "schema_strict": True,
+        "ask_enabled": True,
+        "ask_top_k": 6,
+        "ask_timeout_seconds": 90,
+        "ask_max_context_chars": 3500,
+        "ask_max_citations": 3,
+        "few_shot_max_examples": 4,
     },
     "embeddings": {
         "enabled": False,
@@ -43,6 +52,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "timeout_seconds": 30,
         "persist_path": str(CONFIG_DIR / "chroma"),
         "collection": "emails",
+        "enable_corrections": True,
+        "corrections_collection": "email_corrections",
+        "corrections_top_k": 2,
+        "corrections_min_similarity": 0.72,
     },
     "log": {
         "level": "INFO",
@@ -146,6 +159,42 @@ def validate_config(config: dict[str, Any]) -> None:
     if not isinstance(batch_size, int) or batch_size < 1:
         raise ConfigError("llm.batch_size must be an integer >= 1.")
 
+    prompt_style = config["llm"].get("prompt_style", "caveman")
+    if not isinstance(prompt_style, str) or prompt_style.strip().lower() not in {"caveman", "verbose"}:
+        raise ConfigError("llm.prompt_style must be 'caveman' or 'verbose'.")
+
+    temperature = config["llm"].get("temperature", 0.1)
+    if not isinstance(temperature, (int, float)) or not 0 <= float(temperature) <= 1:
+        raise ConfigError("llm.temperature must be a number between 0 and 1.")
+
+    schema_strict = config["llm"].get("schema_strict", True)
+    if not isinstance(schema_strict, bool):
+        raise ConfigError("llm.schema_strict must be true or false.")
+
+    ask_enabled = config["llm"].get("ask_enabled", True)
+    if not isinstance(ask_enabled, bool):
+        raise ConfigError("llm.ask_enabled must be true or false.")
+
+    ask_top_k = config["llm"].get("ask_top_k", 6)
+    if not isinstance(ask_top_k, int) or ask_top_k < 1:
+        raise ConfigError("llm.ask_top_k must be an integer >= 1.")
+
+    ask_timeout_seconds = config["llm"].get("ask_timeout_seconds", 90)
+    if not isinstance(ask_timeout_seconds, int) or ask_timeout_seconds < 5:
+        raise ConfigError("llm.ask_timeout_seconds must be an integer >= 5.")
+
+    ask_max_context_chars = config["llm"].get("ask_max_context_chars", 3500)
+    if not isinstance(ask_max_context_chars, int) or ask_max_context_chars < 500:
+        raise ConfigError("llm.ask_max_context_chars must be an integer >= 500.")
+
+    ask_max_citations = config["llm"].get("ask_max_citations", 3)
+    if not isinstance(ask_max_citations, int) or ask_max_citations < 1 or ask_max_citations > 8:
+        raise ConfigError("llm.ask_max_citations must be an integer between 1 and 8.")
+
+    few_shot_max_examples = config["llm"].get("few_shot_max_examples", 4)
+    if not isinstance(few_shot_max_examples, int) or few_shot_max_examples < 0 or few_shot_max_examples > 12:
+        raise ConfigError("llm.few_shot_max_examples must be an integer between 0 and 12.")
+
     embeddings_cfg = config["embeddings"]
 
     enabled = embeddings_cfg.get("enabled", False)
@@ -206,6 +255,22 @@ def validate_config(config: dict[str, Any]) -> None:
     collection = embeddings_cfg.get("collection")
     if not isinstance(collection, str) or not collection.strip():
         raise ConfigError("embeddings.collection must be a non-empty string.")
+
+    enable_corrections = embeddings_cfg.get("enable_corrections", True)
+    if not isinstance(enable_corrections, bool):
+        raise ConfigError("embeddings.enable_corrections must be true or false.")
+
+    corrections_collection = embeddings_cfg.get("corrections_collection", "email_corrections")
+    if not isinstance(corrections_collection, str) or not corrections_collection.strip():
+        raise ConfigError("embeddings.corrections_collection must be a non-empty string.")
+
+    corrections_top_k = embeddings_cfg.get("corrections_top_k", 2)
+    if not isinstance(corrections_top_k, int) or corrections_top_k < 1:
+        raise ConfigError("embeddings.corrections_top_k must be an integer >= 1.")
+
+    corrections_min_similarity = embeddings_cfg.get("corrections_min_similarity", 0.72)
+    if not isinstance(corrections_min_similarity, (int, float)) or not 0 <= float(corrections_min_similarity) <= 1:
+        raise ConfigError("embeddings.corrections_min_similarity must be a number between 0 and 1.")
 
     log_level = config["log"].get("level")
     if not isinstance(log_level, str) or not log_level.strip():

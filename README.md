@@ -59,6 +59,7 @@ forgetMail --debug
 - `/help`
 - `/status`
 - `/signals`
+- `/ask <question>`
 - `/watchFor <context> [boost]`
 - `/watchList`
 - `/unwatch <id>`

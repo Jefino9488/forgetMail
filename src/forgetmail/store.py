@@ -100,6 +100,21 @@ class StateStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS feedback_corrections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    message_id TEXT NOT NULL,
+                    thread_id TEXT NOT NULL,
+                    original_important INTEGER NOT NULL,
+                    original_score REAL NOT NULL,
+                    original_reason TEXT NOT NULL,
+                    corrected_important INTEGER NOT NULL,
+                    correction_source TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
 
     def unseen_ids(self, message_ids: list[str]) -> set[str]:
         if not message_ids:
@@ -279,6 +294,15 @@ class StateStore:
                 (thread_value, source),
             )
 
+    def unmute_thread(self, thread_id: str) -> bool:
+        thread_value = thread_id.strip()
+        if not thread_value:
+            return False
+
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM muted_threads WHERE thread_id = ?", (thread_value,))
+            return cursor.rowcount > 0
+
     def muted_threads(self, thread_ids: list[str]) -> set[str]:
         if not thread_ids:
             return set()
@@ -316,6 +340,105 @@ class StateStore:
             )
         return rows
 
+    def latest_classification_for_message(self, message_id: str) -> dict[str, str | float | int] | None:
+        message_value = message_id.strip()
+        if not message_value:
+            return None
+
+        with self._connect() as conn:
+            raw = conn.execute(
+                (
+                    "SELECT message_id, thread_id, sender, subject, important, score, reason, "
+                    "provider, model, classified_at "
+                    "FROM classification_events "
+                    "WHERE message_id = ? "
+                    "ORDER BY id DESC LIMIT 1"
+                ),
+                (message_value,),
+            ).fetchone()
+
+        if raw is None:
+            return None
+
+        return {
+            "message_id": str(raw[0]),
+            "thread_id": str(raw[1]),
+            "sender": str(raw[2]),
+            "subject": str(raw[3]),
+            "important": int(raw[4]),
+            "score": float(raw[5]),
+            "reason": str(raw[6]),
+            "provider": str(raw[7]),
+            "model": str(raw[8]),
+            "classified_at": str(raw[9]),
+        }
+
+    def record_feedback_correction(
+        self,
+        *,
+        message_id: str,
+        thread_id: str,
+        original_important: bool,
+        original_score: float,
+        original_reason: str,
+        corrected_important: bool,
+        correction_source: str,
+    ) -> None:
+        message_value = message_id.strip()
+        thread_value = thread_id.strip()
+        source_value = correction_source.strip() or "telegram_button"
+        reason_value = original_reason.strip() or "No reason provided"
+        if not message_value or not thread_value:
+            raise ValueError("message_id and thread_id are required.")
+
+        with self._connect() as conn:
+            conn.execute(
+                (
+                    "INSERT INTO feedback_corrections "
+                    "(message_id, thread_id, original_important, original_score, original_reason, "
+                    "corrected_important, correction_source) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)"
+                ),
+                (
+                    message_value,
+                    thread_value,
+                    1 if original_important else 0,
+                    float(max(0.0, min(1.0, original_score))),
+                    reason_value,
+                    1 if corrected_important else 0,
+                    source_value,
+                ),
+            )
+
+    def recent_feedback_corrections(self, limit: int = 20) -> list[dict[str, str | float | int]]:
+        with self._connect() as conn:
+            raw_rows = conn.execute(
+                (
+                    "SELECT id, message_id, thread_id, original_important, original_score, original_reason, "
+                    "corrected_important, correction_source, created_at "
+                    "FROM feedback_corrections "
+                    "ORDER BY id DESC LIMIT ?"
+                ),
+                (limit,),
+            ).fetchall()
+
+        rows: list[dict[str, str | float | int]] = []
+        for raw in raw_rows:
+            rows.append(
+                {
+                    "id": int(raw[0]),
+                    "message_id": str(raw[1]),
+                    "thread_id": str(raw[2]),
+                    "original_important": int(raw[3]),
+                    "original_score": float(raw[4]),
+                    "original_reason": str(raw[5]),
+                    "corrected_important": int(raw[6]),
+                    "correction_source": str(raw[7]),
+                    "created_at": str(raw[8]),
+                }
+            )
+        return rows
+
     def stats(self) -> dict[str, int]:
         with self._connect() as conn:
             seen_count = conn.execute("SELECT COUNT(*) FROM seen_messages").fetchone()[0]
@@ -324,6 +447,7 @@ class StateStore:
             watch_rule_count = conn.execute("SELECT COUNT(*) FROM watch_rules WHERE is_active = 1").fetchone()[0]
             watch_rule_event_count = conn.execute("SELECT COUNT(*) FROM watch_rule_events").fetchone()[0]
             muted_thread_count = conn.execute("SELECT COUNT(*) FROM muted_threads").fetchone()[0]
+            feedback_correction_count = conn.execute("SELECT COUNT(*) FROM feedback_corrections").fetchone()[0]
 
         return {
             "seen_messages": int(seen_count),
@@ -332,6 +456,7 @@ class StateStore:
             "watch_rules": int(watch_rule_count),
             "watch_rule_events": int(watch_rule_event_count),
             "muted_threads": int(muted_thread_count),
+            "feedback_corrections": int(feedback_correction_count),
         }
 
     def _connect(self) -> sqlite3.Connection:

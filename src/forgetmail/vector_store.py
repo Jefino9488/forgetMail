@@ -81,6 +81,36 @@ class VectorStore:
         )
         return len(ids)
 
+    def upsert_documents(
+        self,
+        *,
+        ids: list[str],
+        documents: list[str],
+        embeddings: list[list[float]],
+        metadatas: list[dict[str, Any]],
+    ) -> int:
+        if not ids:
+            return 0
+        if not (len(ids) == len(documents) == len(embeddings) == len(metadatas)):
+            raise VectorStoreError(
+                "Vector upsert input mismatch: "
+                f"ids={len(ids)} docs={len(documents)} embeddings={len(embeddings)} metadatas={len(metadatas)}"
+            )
+
+        self._collection.upsert(
+            ids=ids,
+            documents=documents,
+            embeddings=embeddings,
+            metadatas=metadatas,
+        )
+        return len(ids)
+
+    def get_by_ids(self, ids: list[str]) -> dict[str, Any]:
+        if not ids:
+            return {"ids": [], "metadatas": [], "documents": []}
+
+        return self._collection.get(ids=ids, include=["documents", "metadatas"])
+
     def update_classification_results(
         self,
         rows: list[tuple[str, str, str, str, int, float, str, str, str]],

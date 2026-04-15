@@ -80,6 +80,37 @@ def call_classifier_json(
     return _call_openai_compatible_json(llm_config, system_prompt, user_prompt, timeout_seconds)
 
 
+def call_answer_json(
+    llm_config: dict[str, Any],
+    *,
+    question: str,
+    context_rows: list[dict[str, Any]],
+    timeout_seconds: int = 60,
+) -> dict[str, Any]:
+    max_citations = max(1, int(llm_config.get("ask_max_citations", 3)))
+    system_prompt = (
+        "You answer inbox question. Use only given email context. "
+        "If not sure, say unsure. "
+        "Return JSON only with this schema: "
+        '{"answer":"string","confidence":0.0,"citations":[{"message_id":"string","subject":"string","why":"string"}]}'
+    )
+    user_prompt = json.dumps(
+        {
+            "question": question,
+            "max_citations": max_citations,
+            "context": context_rows,
+        },
+        ensure_ascii=True,
+    )
+    payload = call_classifier_json(
+        llm_config,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        timeout_seconds=timeout_seconds,
+    )
+    return _validate_answer_payload(payload, max_citations=max_citations)
+
+
 def _extract_json_payload(raw_text: str) -> dict[str, Any]:
     text = raw_text.strip()
     if text.startswith("```"):
@@ -98,6 +129,57 @@ def _extract_json_payload(raw_text: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise LLMError("LLM response JSON must be an object.")
     return payload
+
+
+def _resolve_temperature(llm_config: dict[str, Any]) -> float:
+    value = llm_config.get("temperature", 0.1)
+    try:
+        temperature = float(value)
+    except (TypeError, ValueError):
+        return 0.1
+    return max(0.0, min(1.0, temperature))
+
+
+def _validate_answer_payload(payload: dict[str, Any], *, max_citations: int) -> dict[str, Any]:
+    answer = payload.get("answer")
+    if not isinstance(answer, str) or not answer.strip():
+        raise LLMError("LLM answer payload missing non-empty 'answer'.")
+
+    confidence_raw = payload.get("confidence", 0.0)
+    try:
+        confidence = float(confidence_raw)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(1.0, confidence))
+
+    citations_raw = payload.get("citations", [])
+    if not isinstance(citations_raw, list):
+        raise LLMError("LLM answer payload field 'citations' must be a list.")
+
+    citations: list[dict[str, str]] = []
+    for item in citations_raw[:max_citations]:
+        if not isinstance(item, dict):
+            continue
+        message_id = item.get("message_id")
+        subject = item.get("subject")
+        why = item.get("why")
+        if not isinstance(message_id, str) or not message_id.strip():
+            continue
+        subject_value = str(subject or "(no subject)").strip() or "(no subject)"
+        why_value = str(why or "relevant context").strip() or "relevant context"
+        citations.append(
+            {
+                "message_id": message_id.strip(),
+                "subject": subject_value,
+                "why": why_value,
+            }
+        )
+
+    return {
+        "answer": answer.strip(),
+        "confidence": confidence,
+        "citations": citations,
+    }
 
 
 def _call_ollama_json(
@@ -119,7 +201,7 @@ def _call_ollama_json(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "options": {"temperature": 0.1},
+        "options": {"temperature": _resolve_temperature(llm_config)},
     }
 
     response = httpx.post(f"{base_url.rstrip('/')}/api/chat", json=payload, timeout=timeout_seconds)
@@ -155,7 +237,7 @@ def _call_openai_compatible_json(
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "temperature": 0.1,
+        "temperature": _resolve_temperature(llm_config),
         "response_format": {"type": "json_object"},
     }
 
