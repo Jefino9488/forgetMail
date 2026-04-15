@@ -197,11 +197,15 @@ class AiogramBotClient:
                 markup = InlineKeyboardMarkup(
                     inline_keyboard=[
                         [
-                            InlineKeyboardButton(text="Reply", callback_data=f"reply:{signal.thread_id}"),
+                            InlineKeyboardButton(
+                                text="Important",
+                                callback_data=f"important:{signal.message_id}:{signal.thread_id}",
+                            ),
                             InlineKeyboardButton(
                                 text="Not important",
-                                callback_data=f"notimportant:{signal.thread_id}",
+                                callback_data=f"notimportant:{signal.message_id}:{signal.thread_id}",
                             ),
+                            InlineKeyboardButton(text="Reply", callback_data=f"reply:{signal.thread_id}"),
                         ]
                     ]
                 )

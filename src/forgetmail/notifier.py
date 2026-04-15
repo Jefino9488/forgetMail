@@ -11,6 +11,7 @@ BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "help", "description": "Show available bot commands"},
     {"command": "status", "description": "Show daemon and classifier status"},
     {"command": "signals", "description": "Show recent detected important signals"},
+    {"command": "ask", "description": "Ask about your inbox: /ask <question>"},
     {"command": "watchfor", "description": "Add watch context: /watchFor <context> [boost]"},
     {"command": "watchlist", "description": "List active watch rules"},
     {"command": "unwatch", "description": "Delete watch rule: /unwatch <id>"},

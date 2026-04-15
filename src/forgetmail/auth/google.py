@@ -61,8 +61,28 @@ def get_credentials(
 
     if creds and creds.expired and creds.refresh_token:
         request = Request(session=_TimeoutSession(refresh_timeout_seconds))
-        creds.refresh(request)
-        _cache_credentials(creds)
+        try:
+            creds.refresh(request)
+        except Exception as exc:
+            if not allow_reauth:
+                detail = str(exc).strip() or exc.__class__.__name__
+                detail_lower = detail.lower()
+                if (
+                    "invalid_grant" in detail_lower
+                    or "expired or revoked" in detail_lower
+                    or "invalid refresh token" in detail_lower
+                ):
+                    raise RuntimeError(
+                        "Cached Google refresh token is invalid or revoked. "
+                        "Re-run forgetMail --onboard to re-authenticate Google."
+                    ) from exc
+                raise RuntimeError(
+                    "Cached Google credentials could not be refreshed. "
+                    f"Refresh error: {detail}"
+                ) from exc
+            creds = None
+        else:
+            _cache_credentials(creds)
 
     if creds and creds.valid:
         return creds
