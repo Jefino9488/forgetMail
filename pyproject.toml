@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "forgetmail"
 version = "0.1.0"
 description = "Linux-native Gmail to Telegram signal bridge"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
 	"google-auth-oauthlib>=1.2",
