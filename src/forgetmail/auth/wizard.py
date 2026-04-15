@@ -18,6 +18,23 @@ from forgetmail.gmail_client import GmailClient
 from forgetmail.llm import cache_llm_api_key, detect_ollama_models, validate_llm_connection
 
 
+def _is_connectivity_failure(exc: Exception) -> bool:
+    text = str(exc).lower()
+    markers = (
+        "name or service not known",
+        "gaierror",
+        "dns",
+        "temporary failure in name resolution",
+        "connection timed out",
+        "read timed out",
+        "max retries exceeded",
+        "connection aborted",
+        "connection reset",
+        "network is unreachable",
+    )
+    return any(marker in text for marker in markers)
+
+
 def _prompt_non_empty(prompt: str) -> str:
     while True:
         value = input(prompt).strip()
@@ -155,6 +172,7 @@ def run_auth_wizard() -> None:
 
 def validate_all() -> None:
     config = load_config()
+    refresh_timeout_seconds = int(os.getenv("FORGETMAIL_GOOGLE_REFRESH_TIMEOUT_SECONDS", "30"))
 
     print("Checking Gmail API...", flush=True)
     profile = None
@@ -162,12 +180,14 @@ def validate_all() -> None:
     for attempt in range(1, 3):
         try:
             print(f"  Gmail attempt {attempt}/2", flush=True)
-            creds = get_credentials(allow_reauth=False, refresh_timeout_seconds=10)
+            creds = get_credentials(allow_reauth=False, refresh_timeout_seconds=refresh_timeout_seconds)
             gmail = GmailClient(creds, timeout_seconds=15)
             profile = gmail.get_profile()
             break
         except Exception as exc:
             last_error = exc
+            if _is_connectivity_failure(exc):
+                break
             if attempt < 2:
                 time.sleep(attempt * 2)
 
