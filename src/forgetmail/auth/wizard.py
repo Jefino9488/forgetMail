@@ -15,7 +15,11 @@ from forgetmail.auth.telegram import (
 )
 from forgetmail.config import CONFIG_PATH, ensure_config_dir, load_config, save_config
 from forgetmail.gmail_client import GmailClient
-from forgetmail.llm import cache_llm_api_key, detect_ollama_models, validate_llm_connection
+from forgetmail.llm import (
+    cache_llm_api_key,
+    detect_ollama_models,
+    validate_llm_connection,
+)
 
 
 def _is_connectivity_failure(exc: Exception) -> bool:
@@ -180,7 +184,9 @@ def validate_all() -> None:
     for attempt in range(1, 3):
         try:
             print(f"  Gmail attempt {attempt}/2", flush=True)
-            creds = get_credentials(allow_reauth=False, refresh_timeout_seconds=refresh_timeout_seconds)
+            creds = get_credentials(
+                allow_reauth=False, refresh_timeout_seconds=refresh_timeout_seconds
+            )
             gmail = GmailClient(creds, timeout_seconds=15)
             profile = gmail.get_profile()
             break

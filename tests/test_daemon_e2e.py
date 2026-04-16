@@ -19,20 +19,22 @@ class _FakeVectorStore:
     def query_similar(self, _query_embedding: list[float], *, top_k: int = 5) -> dict:
         return {
             "ids": [["m1", "m2"]],
-            "metadatas": [[
-                {
-                    "subject": "Budget request",
-                    "sender": "alice@example.com",
-                    "snippet": "Need budget by EOD",
-                    "reason": "finance",
-                },
-                {
-                    "subject": "Roadmap",
-                    "sender": "bob@example.com",
-                    "snippet": "Quarterly roadmap draft",
-                    "reason": "planning",
-                },
-            ]],
+            "metadatas": [
+                [
+                    {
+                        "subject": "Budget request",
+                        "sender": "alice@example.com",
+                        "snippet": "Need budget by EOD",
+                        "reason": "finance",
+                    },
+                    {
+                        "subject": "Roadmap",
+                        "sender": "bob@example.com",
+                        "snippet": "Quarterly roadmap draft",
+                        "reason": "planning",
+                    },
+                ]
+            ],
             "distances": [[0.10, 0.25]],
         }
 
@@ -55,8 +57,14 @@ class DaemonE2ETests(unittest.TestCase):
         sent_messages: list[tuple[str, int, str]] = []
 
         with (
-            patch("forgetmail.daemon.EmbeddingClient.from_config", return_value=_FakeEmbeddingClient()),
-            patch("forgetmail.daemon.VectorStore.from_config", return_value=_FakeVectorStore()),
+            patch(
+                "forgetmail.daemon.EmbeddingClient.from_config",
+                return_value=_FakeEmbeddingClient(),
+            ),
+            patch(
+                "forgetmail.daemon.VectorStore.from_config",
+                return_value=_FakeVectorStore(),
+            ),
             patch(
                 "forgetmail.daemon.call_answer_json",
                 return_value={
@@ -73,7 +81,9 @@ class DaemonE2ETests(unittest.TestCase):
             ),
             patch(
                 "forgetmail.daemon.send_text_message",
-                side_effect=lambda token, chat_id, text: sent_messages.append((token, chat_id, text)),
+                side_effect=lambda token, chat_id, text: sent_messages.append(
+                    (token, chat_id, text)
+                ),
             ),
         ):
             daemon._handle_ask_command(
@@ -123,7 +133,10 @@ class DaemonE2ETests(unittest.TestCase):
             callback_acks: list[str] = []
 
             with (
-                patch("forgetmail.daemon._upsert_feedback_correction_vector", return_value=None),
+                patch(
+                    "forgetmail.daemon._upsert_feedback_correction_vector",
+                    return_value=None,
+                ),
                 patch(
                     "forgetmail.daemon.send_text_message",
                     side_effect=lambda _token, _chat_id, text: sent_messages.append(text),
@@ -179,7 +192,10 @@ class DaemonE2ETests(unittest.TestCase):
             )
 
             with (
-                patch("forgetmail.daemon._upsert_feedback_correction_vector", return_value=None),
+                patch(
+                    "forgetmail.daemon._upsert_feedback_correction_vector",
+                    return_value=None,
+                ),
                 patch("forgetmail.daemon.send_text_message", return_value=None),
                 patch("forgetmail.daemon.answer_callback_query", return_value=None),
             ):

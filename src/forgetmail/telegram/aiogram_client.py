@@ -157,7 +157,10 @@ class AiogramBotClient:
 
     def configure_bot_commands(self, token: str, commands: list[dict[str, str]]) -> None:
         async def _operation(bot: Bot) -> None:
-            payload = [BotCommand(command=item["command"], description=item["description"]) for item in commands]
+            payload = [
+                BotCommand(command=item["command"], description=item["description"])
+                for item in commands
+            ]
             await bot.set_my_commands(payload)
 
         self._run_with_bot(token, _operation)
@@ -205,7 +208,9 @@ class AiogramBotClient:
                                 text="Not important",
                                 callback_data=f"notimportant:{signal.message_id}:{signal.thread_id}",
                             ),
-                            InlineKeyboardButton(text="Reply", callback_data=f"reply:{signal.thread_id}"),
+                            InlineKeyboardButton(
+                                text="Reply", callback_data=f"reply:{signal.thread_id}"
+                            ),
                         ]
                     ]
                 )

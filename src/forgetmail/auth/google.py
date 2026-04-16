@@ -77,8 +77,7 @@ def get_credentials(
                         "Re-run forgetMail --onboard to re-authenticate Google."
                     ) from exc
                 raise RuntimeError(
-                    "Cached Google credentials could not be refreshed. "
-                    f"Refresh error: {detail}"
+                    f"Cached Google credentials could not be refreshed. Refresh error: {detail}"
                 ) from exc
             creds = None
         else:

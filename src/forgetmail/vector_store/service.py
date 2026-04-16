@@ -34,7 +34,9 @@ class VectorStore:
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "VectorStore":
-        persist_path = Path(str(config.get("persist_path", "~/.config/forgetmail/chroma"))).expanduser()
+        persist_path = Path(
+            str(config.get("persist_path", "~/.config/forgetmail/chroma"))
+        ).expanduser()
         collection_name = str(config.get("collection", "emails")).strip() or "emails"
         return cls(persist_path=persist_path, collection_name=collection_name)
 
@@ -123,7 +125,17 @@ class VectorStore:
         now = datetime.now(timezone.utc).isoformat()
 
         for row in rows:
-            message_id, _thread_id, _sender, _subject, important, score, reason, provider, model = row
+            (
+                message_id,
+                _thread_id,
+                _sender,
+                _subject,
+                important,
+                score,
+                reason,
+                provider,
+                model,
+            ) = row
             ids.append(str(message_id))
             metadatas.append(
                 {

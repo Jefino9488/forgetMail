@@ -8,10 +8,15 @@ from typing import Any
 from aiogram.types import CallbackQuery, Update
 
 from forgetmail.auth.telegram import get_bot_token
-from forgetmail.embedding_client import EmbeddingClient, EmbeddingError, candidate_to_embedding_text
+from forgetmail.embedding_client import (
+    EmbeddingClient,
+    EmbeddingError,
+    candidate_to_embedding_text,
+)
 from forgetmail.classifier import LLMError
 from forgetmail.classifier import classify_messages
 from forgetmail.config import load_config
+from .polling import poll_once as _poll_once_impl
 from forgetmail.llm import call_answer_json
 from forgetmail.notifier import (
     SignalNotification,
@@ -105,15 +110,14 @@ def _format_recent_signals(rows: list[dict[str, str | float]]) -> str:
     lines = ["Recent signals:"]
     for item in rows:
         lines.append(
-            (
-                f"- {item['notified_at']} | {item['subject']} | "
-                f"score={float(item['score']):.2f}"
-            )
+            (f"- {item['notified_at']} | {item['subject']} | score={float(item['score']):.2f}")
         )
     return "\n".join(lines)
 
 
-def _format_status(config: dict[str, Any], store: StateStore, last_cycle: dict[str, int] | None) -> str:
+def _format_status(
+    config: dict[str, Any], store: StateStore, last_cycle: dict[str, int] | None
+) -> str:
     stats = store.stats()
     llm_cfg = config["llm"]
     embeddings_cfg = config.get("embeddings", {})
@@ -169,10 +173,7 @@ def _format_watch_rules(store: StateStore) -> str:
     lines = ["Active watch rules:"]
     for item in rows[:20]:
         lines.append(
-            (
-                f"- id={item['id']} context={item['context']} "
-                f"boost={float(item['boost']):.2f}"
-            )
+            (f"- id={item['id']} context={item['context']} boost={float(item['boost']):.2f}")
         )
     return "\n".join(lines)
 
@@ -223,11 +224,14 @@ def _extract_command_payload(text: str) -> str:
     return parts[1].strip()
 
 
-def _corrections_vector_store_from_config(embeddings_cfg: dict[str, Any]) -> VectorStore:
+def _corrections_vector_store_from_config(
+    embeddings_cfg: dict[str, Any],
+) -> VectorStore:
     corrections_cfg = dict(embeddings_cfg)
-    corrections_cfg["collection"] = str(
-        embeddings_cfg.get("corrections_collection", "email_corrections")
-    ).strip() or "email_corrections"
+    corrections_cfg["collection"] = (
+        str(embeddings_cfg.get("corrections_collection", "email_corrections")).strip()
+        or "email_corrections"
+    )
     return VectorStore.from_config(corrections_cfg)
 
 
@@ -265,9 +269,15 @@ def _build_ask_context_rows(
         return []
 
     first_ids = ids_rows[0] if isinstance(ids_rows[0], list) else []
-    first_meta = metadata_rows[0] if isinstance(metadata_rows, list) and metadata_rows and isinstance(metadata_rows[0], list) else []
+    first_meta = (
+        metadata_rows[0]
+        if isinstance(metadata_rows, list) and metadata_rows and isinstance(metadata_rows[0], list)
+        else []
+    )
     first_distances = (
-        distance_rows[0] if isinstance(distance_rows, list) and distance_rows and isinstance(distance_rows[0], list) else []
+        distance_rows[0]
+        if isinstance(distance_rows, list) and distance_rows and isinstance(distance_rows[0], list)
+        else []
     )
 
     context_rows: list[dict[str, Any]] = []
@@ -284,7 +294,12 @@ def _build_ask_context_rows(
         sender = str(metadata.get("sender", "unknown")).strip() or "unknown"
         snippet = str(metadata.get("snippet", "")).strip()
         reason = str(metadata.get("reason", "")).strip()
-        similarity = _distance_to_similarity(first_distances[index] if index < len(first_distances) else None) or 0.0
+        similarity = (
+            _distance_to_similarity(
+                first_distances[index] if index < len(first_distances) else None
+            )
+            or 0.0
+        )
 
         row = {
             "message_id": raw_id,
@@ -317,12 +332,20 @@ def _handle_ask_command(
 
     llm_cfg = config["llm"]
     if not bool(llm_cfg.get("ask_enabled", True)):
-        send_text_message(token, expected_chat_id, "Ask command is disabled in config (llm.ask_enabled=false).")
+        send_text_message(
+            token,
+            expected_chat_id,
+            "Ask command is disabled in config (llm.ask_enabled=false).",
+        )
         return
 
     embeddings_cfg = config.get("embeddings", {})
     if not bool(embeddings_cfg.get("enabled", False)):
-        send_text_message(token, expected_chat_id, "Ask needs embeddings.enabled=true to search your inbox vectors.")
+        send_text_message(
+            token,
+            expected_chat_id,
+            "Ask needs embeddings.enabled=true to search your inbox vectors.",
+        )
         return
 
     try:
@@ -343,7 +366,11 @@ def _handle_ask_command(
         return
 
     if not context_rows:
-        send_text_message(token, expected_chat_id, "No relevant email context found yet. Try again after more mail is indexed.")
+        send_text_message(
+            token,
+            expected_chat_id,
+            "No relevant email context found yet. Try again after more mail is indexed.",
+        )
         return
 
     try:
@@ -356,7 +383,11 @@ def _handle_ask_command(
         send_text_message(token, expected_chat_id, _format_ask_response(question, answer_payload))
     except Exception as exc:
         logging.warning("Ask answer generation failed: %s", exc)
-        send_text_message(token, expected_chat_id, "I could not generate a safe structured answer this time.")
+        send_text_message(
+            token,
+            expected_chat_id,
+            "I could not generate a safe structured answer this time.",
+        )
 
 
 def _parse_feedback_callback_data(callback_data: str) -> tuple[str, str, str] | None:
@@ -463,22 +494,36 @@ def _build_correction_few_shot_examples(
 
     by_correction_id: dict[str, tuple[float, dict[str, Any]]] = {}
     for index in range(len(candidates)):
-        row_ids = ids_rows[index] if index < len(ids_rows) and isinstance(ids_rows[index], list) else []
+        row_ids = (
+            ids_rows[index] if index < len(ids_rows) and isinstance(ids_rows[index], list) else []
+        )
         row_meta = (
-            metadata_rows[index] if index < len(metadata_rows) and isinstance(metadata_rows[index], list) else []
+            metadata_rows[index]
+            if index < len(metadata_rows) and isinstance(metadata_rows[index], list)
+            else []
         )
         row_docs = (
-            documents_rows[index] if isinstance(documents_rows, list) and index < len(documents_rows) and isinstance(documents_rows[index], list) else []
+            documents_rows[index]
+            if isinstance(documents_rows, list)
+            and index < len(documents_rows)
+            and isinstance(documents_rows[index], list)
+            else []
         )
         row_distances = (
-            distance_rows[index] if isinstance(distance_rows, list) and index < len(distance_rows) and isinstance(distance_rows[index], list) else []
+            distance_rows[index]
+            if isinstance(distance_rows, list)
+            and index < len(distance_rows)
+            and isinstance(distance_rows[index], list)
+            else []
         )
 
         for item_index, correction_id in enumerate(row_ids):
             if not isinstance(correction_id, str) or not correction_id:
                 continue
 
-            similarity = _distance_to_similarity(row_distances[item_index] if item_index < len(row_distances) else None)
+            similarity = _distance_to_similarity(
+                row_distances[item_index] if item_index < len(row_distances) else None
+            )
             if similarity is None or similarity < min_similarity:
                 continue
 
@@ -490,7 +535,9 @@ def _build_correction_few_shot_examples(
                 corrected_important = int(metadata.get("corrected_important", 0)) == 1
             except (TypeError, ValueError):
                 corrected_important = False
-            reason = str(metadata.get("original_reason", "user correction")).strip() or "user correction"
+            reason = (
+                str(metadata.get("original_reason", "user correction")).strip() or "user correction"
+            )
 
             text = ""
             if item_index < len(row_docs) and isinstance(row_docs[item_index], str):
@@ -539,7 +586,11 @@ def _handle_callback_query(
 
     if callback_data.startswith("reply:"):
         answer_callback_query(token, callback_id, "Reply workflow coming soon")
-        send_text_message(token, expected_chat_id, "Reply action received. Reply workflow is coming soon.")
+        send_text_message(
+            token,
+            expected_chat_id,
+            "Reply action received. Reply workflow is coming soon.",
+        )
         return
 
     feedback_parts = _parse_feedback_callback_data(callback_data)
@@ -688,16 +739,28 @@ def _build_vector_query_hints(
     ids_rows = query_results.get("ids")
     metadata_rows = query_results.get("metadatas")
     distance_rows = query_results.get("distances")
-    if not isinstance(ids_rows, list) or not isinstance(metadata_rows, list) or not isinstance(distance_rows, list):
+    if (
+        not isinstance(ids_rows, list)
+        or not isinstance(metadata_rows, list)
+        or not isinstance(distance_rows, list)
+    ):
         return {}
 
     hints: dict[str, tuple[float, int, float]] = {}
     for index, candidate in enumerate(candidates):
         candidate_id = candidate.message_id
-        neighbor_ids = ids_rows[index] if index < len(ids_rows) and isinstance(ids_rows[index], list) else []
-        neighbors_meta = metadata_rows[index] if index < len(metadata_rows) and isinstance(metadata_rows[index], list) else []
+        neighbor_ids = (
+            ids_rows[index] if index < len(ids_rows) and isinstance(ids_rows[index], list) else []
+        )
+        neighbors_meta = (
+            metadata_rows[index]
+            if index < len(metadata_rows) and isinstance(metadata_rows[index], list)
+            else []
+        )
         neighbors_distances = (
-            distance_rows[index] if index < len(distance_rows) and isinstance(distance_rows[index], list) else []
+            distance_rows[index]
+            if index < len(distance_rows) and isinstance(distance_rows[index], list)
+            else []
         )
         if not neighbor_ids:
             continue
@@ -710,7 +773,9 @@ def _build_vector_query_hints(
             if not isinstance(neighbor_id, str) or neighbor_id == candidate_id:
                 continue
 
-            metadata = neighbors_meta[neighbor_index] if neighbor_index < len(neighbors_meta) else None
+            metadata = (
+                neighbors_meta[neighbor_index] if neighbor_index < len(neighbors_meta) else None
+            )
             if not isinstance(metadata, dict):
                 continue
 
@@ -722,7 +787,9 @@ def _build_vector_query_hints(
                 continue
 
             similarity = _distance_to_similarity(
-                neighbors_distances[neighbor_index] if neighbor_index < len(neighbors_distances) else None
+                neighbors_distances[neighbor_index]
+                if neighbor_index < len(neighbors_distances)
+                else None
             )
             if similarity is None or similarity < min_similarity:
                 continue
@@ -759,7 +826,9 @@ def _process_bot_commands(
     last_cycle: dict[str, int] | None,
 ) -> tuple[int | None, bool]:
     try:
-        updates: list[Update] = fetch_updates(token, offset=offset, limit=20, poll_timeout_seconds=2)
+        updates: list[Update] = fetch_updates(
+            token, offset=offset, limit=20, poll_timeout_seconds=2
+        )
     except Exception as exc:
         logging.warning("Telegram update polling failed (will retry): %s", exc)
         return offset, False
@@ -773,7 +842,9 @@ def _process_bot_commands(
         update_id = update.update_id
         if isinstance(update_id, int):
             candidate_offset = update_id + 1
-            next_offset = candidate_offset if next_offset is None else max(next_offset, candidate_offset)
+            next_offset = (
+                candidate_offset if next_offset is None else max(next_offset, candidate_offset)
+            )
 
         callback_query = update.callback_query
         if callback_query is not None:
@@ -811,7 +882,11 @@ def _process_bot_commands(
             continue
 
         if command == "/signals":
-            send_text_message(token, expected_chat_id, _format_recent_signals(store.recent_signal_events(limit=5)))
+            send_text_message(
+                token,
+                expected_chat_id,
+                _format_recent_signals(store.recent_signal_events(limit=5)),
+            )
             continue
 
         if command == "/ask":
@@ -859,365 +934,7 @@ def _process_bot_commands(
 
 
 def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str, int]:
-    gmail_cfg = config["gmail"]
-    llm_cfg = config["llm"]
-    embeddings_cfg = config.get("embeddings", {})
-    threshold = float(llm_cfg.get("importance_threshold", 0.65))
-    logging.debug(
-        "Poll settings: lookback_days=%s max_messages_per_poll=%s threshold=%.2f model=%s provider=%s",
-        gmail_cfg.get("lookback_days"),
-        gmail_cfg.get("max_messages_per_poll"),
-        threshold,
-        llm_cfg.get("model"),
-        llm_cfg.get("provider"),
-    )
-
-    message_ids = list_recent_unread_message_ids(
-        lookback_days=int(gmail_cfg["lookback_days"]),
-        max_messages=int(gmail_cfg["max_messages_per_poll"]),
-    )
-    logging.debug("Fetched unread ids=%s", len(message_ids))
-    if not message_ids:
-        logging.info("No unread messages found in lookback window.")
-        return {
-            "fetched": 0,
-            "unseen": 0,
-            "classified": 0,
-            "boosted": 0,
-            "vector_boosted": 0,
-            "signals": 0,
-            "sent": 0,
-            "gmail_marked_read": 0,
-            "marked_seen": 0,
-            "omitted_for_retry": 0,
-            "llm_failed": 0,
-        }
-
-    unseen = store.unseen_ids(message_ids)
-    unseen_ids = [item for item in message_ids if item in unseen]
-    logging.debug("Dedupe result: unseen=%s", len(unseen_ids))
-    if not unseen_ids:
-        logging.info("No new unread messages after dedupe.")
-        return {
-            "fetched": len(message_ids),
-            "unseen": 0,
-            "classified": 0,
-            "boosted": 0,
-            "vector_boosted": 0,
-            "signals": 0,
-            "sent": 0,
-            "gmail_marked_read": 0,
-            "marked_seen": 0,
-            "omitted_for_retry": 0,
-            "llm_failed": 0,
-        }
-
-    candidates = fetch_message_candidates(unseen_ids)
-    logging.debug("Fetched metadata for unseen candidates=%s", len(candidates))
-    if not candidates:
-        logging.info("No candidate metadata fetched for unseen message ids.")
-        return {
-            "fetched": len(message_ids),
-            "unseen": len(unseen_ids),
-            "classified": 0,
-            "boosted": 0,
-            "vector_boosted": 0,
-            "signals": 0,
-            "sent": 0,
-            "gmail_marked_read": 0,
-            "marked_seen": 0,
-            "omitted_for_retry": 0,
-            "llm_failed": 0,
-        }
-
-    vector_store: VectorStore | None = None
-    embeddings_by_message_id: dict[str, list[float]] = {}
-    embeddings_enabled = bool(embeddings_cfg.get("enabled", False))
-    vector_upsert_enabled = bool(embeddings_cfg.get("enable_vector_upsert", True))
-    if embeddings_enabled and vector_upsert_enabled:
-        try:
-            embedding_client = EmbeddingClient.from_config(embeddings_cfg)
-            vector_store = VectorStore.from_config(embeddings_cfg)
-            embedding_texts = [candidate_to_embedding_text(item) for item in candidates]
-            embeddings = embedding_client.embed_texts(embedding_texts)
-            embeddings_by_message_id = {
-                item.message_id: vector for item, vector in zip(candidates, embeddings, strict=False)
-            }
-            upserted = vector_store.upsert_email_candidates(candidates, embeddings)
-            logging.debug("Vector upsert completed rows=%s", upserted)
-        except (EmbeddingError, VectorStoreError, Exception) as exc:
-            logging.warning(
-                "Embedding/vector upsert failed; continuing without vector updates: %s",
-                exc,
-            )
-            vector_store = None
-
-    vector_query_enabled = bool(embeddings_cfg.get("enable_vector_query", False))
-    vector_query_hints: dict[str, tuple[float, int, float]] = {}
-    if vector_store is not None and vector_query_enabled and embeddings_by_message_id:
-        try:
-            vector_query_hints = _build_vector_query_hints(
-                vector_store=vector_store,
-                candidates=candidates,
-                embeddings_by_message_id=embeddings_by_message_id,
-                embeddings_cfg=embeddings_cfg,
-            )
-            logging.debug("Vector query hints generated rows=%s", len(vector_query_hints))
-        except Exception as exc:
-            logging.warning(
-                "Vector query failed; continuing without retrieval boosts: %s",
-                exc,
-            )
-
-    correction_few_shot_examples: list[dict[str, Any]] = []
-    if embeddings_by_message_id and bool(embeddings_cfg.get("enable_corrections", True)):
-        try:
-            correction_store = _corrections_vector_store_from_config(embeddings_cfg)
-            correction_few_shot_examples = _build_correction_few_shot_examples(
-                correction_store=correction_store,
-                candidates=candidates,
-                embeddings_by_message_id=embeddings_by_message_id,
-                embeddings_cfg=embeddings_cfg,
-                llm_cfg=llm_cfg,
-            )
-            logging.debug(
-                "Correction few-shot examples selected=%s",
-                len(correction_few_shot_examples),
-            )
-        except Exception as exc:
-            logging.warning("Correction retrieval failed; continuing without few-shot examples: %s", exc)
-
-    try:
-        classifications = classify_messages(
-            candidates,
-            llm_cfg,
-            few_shot_examples=correction_few_shot_examples,
-        )
-    except LLMError as exc:
-        logging.warning("Skipping cycle notifications due to LLM classification failure: %s", exc)
-        return {
-            "fetched": len(message_ids),
-            "unseen": len(candidates),
-            "classified": 0,
-            "boosted": 0,
-            "vector_boosted": 0,
-            "few_shot_examples": len(correction_few_shot_examples),
-            "signals": 0,
-            "sent": 0,
-            "gmail_marked_read": 0,
-            "marked_seen": 0,
-            "omitted_for_retry": 0,
-            "llm_failed": 1,
-        }
-
-    logging.debug("Classifier returned rows=%s", len(classifications))
-    class_map = {item.message_id: item for item in classifications}
-    muted_threads = store.muted_threads([item.thread_id for item in candidates])
-
-    provider_name = str(llm_cfg.get("provider", "unknown"))
-    model_name = str(llm_cfg.get("model", "unknown"))
-    classification_rows: list[tuple[str, str, str, str, int, float, str, str, str]] = []
-    watch_rule_events: list[tuple[int, str, str, float]] = []
-    boost_count = 0
-    vector_boost_count = 0
-    omitted_ids: set[str] = set()
-
-    adjusted_by_id: dict[str, tuple[bool, float, str]] = {}
-    for message in candidates:
-        result = class_map.get(message.message_id)
-        if result is None:
-            important = False
-            score = 0.0
-            reason = "Missing classification row"
-        else:
-            important = bool(result.important)
-            score = float(result.score)
-            reason = result.reason
-
-        if reason == OMITTED_REASON:
-            omitted_ids.add(message.message_id)
-
-        matched_rules = store.match_watch_rules(
-            sender=message.sender,
-            subject=message.subject,
-            snippet=message.snippet,
-        )
-        applied_boost = 0.0
-        for matched_rule in matched_rules:
-            rule_boost = float(matched_rule["boost"])
-            applied_boost = max(applied_boost, rule_boost)
-            watch_rule_events.append(
-                (
-                    int(matched_rule["id"]),
-                    message.message_id,
-                    str(matched_rule["context"]),
-                    rule_boost,
-                )
-            )
-
-        adjusted_score = min(1.0, score + applied_boost)
-        adjusted_reason = reason
-        if applied_boost > 0:
-            boost_count += 1
-            adjusted_reason = f"{reason} | watch boost +{applied_boost:.2f}"
-            logging.debug(
-                "Watch rule boost applied message_id=%s context_hits=%s base=%.2f adjusted=%.2f",
-                message.message_id,
-                len(matched_rules),
-                score,
-                adjusted_score,
-            )
-
-        query_hint = vector_query_hints.get(message.message_id)
-        if query_hint is not None:
-            query_boost, important_hits, best_similarity = query_hint
-            adjusted_score = min(1.0, adjusted_score + query_boost)
-            if not important and adjusted_score >= max(0.50, threshold - 0.10):
-                important = True
-            adjusted_reason = (
-                f"{adjusted_reason} | vector similar important={important_hits} "
-                f"max_sim={best_similarity:.2f} boost=+{query_boost:.2f}"
-            )
-            vector_boost_count += 1
-            logging.debug(
-                "Vector query boost applied message_id=%s neighbors=%s max_sim=%.2f adjusted=%.2f",
-                message.message_id,
-                important_hits,
-                best_similarity,
-                adjusted_score,
-            )
-
-        if message.thread_id in muted_threads:
-            adjusted_score = max(0.0, adjusted_score - 1.0)
-            important = False
-            adjusted_reason = f"{adjusted_reason} | muted thread"
-            logging.debug(
-                "Muted thread suppression message_id=%s thread_id=%s adjusted_score=%.2f",
-                message.message_id,
-                message.thread_id,
-                adjusted_score,
-            )
-
-        if _looks_like_newsletter(message.sender, message.subject, message.snippet):
-            adjusted_score = min(adjusted_score, 0.15)
-            important = False
-            adjusted_reason = f"{adjusted_reason} | newsletter pattern"
-            logging.debug(
-                "Newsletter suppression message_id=%s thread_id=%s adjusted_score=%.2f",
-                message.message_id,
-                message.thread_id,
-                adjusted_score,
-            )
-
-        adjusted_by_id[message.message_id] = (important, adjusted_score, adjusted_reason)
-
-        classification_rows.append(
-            (
-                message.message_id,
-                message.thread_id,
-                message.sender,
-                message.subject,
-                1 if important else 0,
-                adjusted_score,
-                adjusted_reason,
-                provider_name,
-                model_name,
-            )
-        )
-        logging.debug(
-            "Classified message_id=%s important=%s score=%.2f subject=%r reason=%s",
-            message.message_id,
-            important,
-            adjusted_score,
-            message.subject,
-            adjusted_reason,
-        )
-
-    store.record_classification_events(classification_rows)
-    store.record_watch_rule_events(watch_rule_events)
-    if vector_store is not None:
-        try:
-            updated = vector_store.update_classification_results(classification_rows)
-            logging.debug("Vector classification metadata updated rows=%s", updated)
-        except Exception as exc:
-            logging.warning(
-                "Vector metadata update failed; continuing without vector metadata updates: %s",
-                exc,
-            )
-    logging.debug("Recorded classification rows=%s; proceeding with signal filtering", len(classification_rows))
-
-    adjusted_signals: list[SignalNotification] = []
-    for message in candidates:
-        adjusted = adjusted_by_id.get(message.message_id)
-        if adjusted is None:
-            continue
-        adjusted_important, adjusted_score, adjusted_reason = adjusted
-        if adjusted_important and adjusted_score >= threshold:
-            adjusted_signals.append(
-                SignalNotification(
-                    message_id=message.message_id,
-                    thread_id=message.thread_id,
-                    sender=message.sender,
-                    subject=message.subject,
-                    reason=adjusted_reason,
-                    score=adjusted_score,
-                )
-            )
-
-    signals = adjusted_signals
-    logging.debug("Signal candidates=%s", len(signals))
-    chat_id = int(config["telegram"]["chat_id"])
-
-    sent_ids: set[str] = set()
-    if signals:
-        sent_ids = send_signal_notifications(telegram_token, chat_id, signals)
-        signal_rows = [
-            (item.message_id, item.thread_id, item.sender, item.subject, item.reason, item.score)
-            for item in signals
-            if item.message_id in sent_ids
-        ]
-        store.record_signal_events(signal_rows)
-    logging.debug("Telegram sent notifications=%s", len(sent_ids))
-
-    all_by_id = {item.message_id: item for item in candidates}
-    important_ids = {item.message_id for item in signals}
-    non_important_ids = (set(all_by_id.keys()) - important_ids) - omitted_ids
-    read_marked_ids = mark_messages_read(sorted(non_important_ids))
-    logging.debug("Marked read in Gmail message_ids=%s", len(read_marked_ids))
-    mark_ids = set(read_marked_ids) | sent_ids
-
-    rows_to_mark = [(message_id, all_by_id[message_id].thread_id) for message_id in mark_ids]
-    store.mark_seen(rows_to_mark)
-    logging.debug("Marked seen message_ids=%s", len(rows_to_mark))
-
-    logging.info(
-        "Cycle complete: fetched=%s unseen=%s classified=%s boosted=%s vector_boosted=%s few_shot_examples=%s signals=%s sent=%s gmail_marked_read=%s omitted_for_retry=%s marked_seen=%s llm_failed=0",
-        len(message_ids),
-        len(candidates),
-        len(classification_rows),
-        boost_count,
-        vector_boost_count,
-        len(correction_few_shot_examples),
-        len(signals),
-        len(sent_ids),
-        len(read_marked_ids),
-        len(omitted_ids),
-        len(rows_to_mark),
-    )
-    return {
-        "fetched": len(message_ids),
-        "unseen": len(candidates),
-        "classified": len(classification_rows),
-        "boosted": boost_count,
-        "vector_boosted": vector_boost_count,
-        "few_shot_examples": len(correction_few_shot_examples),
-        "signals": len(signals),
-        "sent": len(sent_ids),
-        "gmail_marked_read": len(read_marked_ids),
-        "marked_seen": len(rows_to_mark),
-        "omitted_for_retry": len(omitted_ids),
-        "llm_failed": 0,
-    }
+    return _poll_once_impl(config, store, telegram_token)
 
 
 def run_daemon(debug: bool = False) -> None:
@@ -1255,7 +972,9 @@ def run_daemon(debug: bool = False) -> None:
     signal.signal(signal.SIGTERM, _handle_stop)
 
     active_interval_seconds = int(config["gmail"]["poll_interval_seconds"])
-    idle_interval_seconds = int(config["gmail"].get("idle_poll_interval_seconds", active_interval_seconds))
+    idle_interval_seconds = int(
+        config["gmail"].get("idle_poll_interval_seconds", active_interval_seconds)
+    )
     chat_id = int(config["telegram"]["chat_id"])
     logging.info(
         "forgetMail daemon started. active_poll_interval=%ss idle_poll_interval=%ss debug=%s",
@@ -1367,7 +1086,9 @@ def run_daemon(debug: bool = False) -> None:
                                 "Immediate poll failed. Check daemon logs.",
                             )
                         except Exception:
-                            logging.exception("Failed to notify Telegram about immediate poll failure")
+                            logging.exception(
+                                "Failed to notify Telegram about immediate poll failure"
+                            )
                     interval_seconds = _select_poll_interval_seconds(
                         active_interval_seconds=active_interval_seconds,
                         idle_interval_seconds=idle_interval_seconds,

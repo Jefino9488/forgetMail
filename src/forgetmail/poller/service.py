@@ -6,15 +6,7 @@ from forgetmail.auth.google import get_credentials
 from forgetmail.classifier import EmailCandidate
 from forgetmail.gmail_client import GmailClient
 
-
-def _header_map(headers: list[dict[str, str]]) -> dict[str, str]:
-    mapped: dict[str, str] = {}
-    for item in headers:
-        key = item.get("name")
-        value = item.get("value")
-        if isinstance(key, str) and isinstance(value, str):
-            mapped[key.lower()] = value
-    return mapped
+from .parsing import _header_map
 
 
 def list_recent_unread_message_ids(
