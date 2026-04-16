@@ -19,7 +19,9 @@ SCOPES = [
 ]
 
 GOOGLE_CREDS_KEY = "google_credentials_json"
-DEFAULT_CLIENT_SECRET_PATH = Path.home() / ".config" / "forgetmail" / "client_secret.json"
+DEFAULT_CLIENT_SECRET_PATH = (
+    Path.home() / ".config" / "forgetmail" / "client_secret.json"
+)
 
 
 class _TimeoutSession(requests.Session):
@@ -77,8 +79,7 @@ def get_credentials(
                         "Re-run forgetMail --onboard to re-authenticate Google."
                     ) from exc
                 raise RuntimeError(
-                    "Cached Google credentials could not be refreshed. "
-                    f"Refresh error: {detail}"
+                    f"Cached Google credentials could not be refreshed. Refresh error: {detail}"
                 ) from exc
             creds = None
         else:
@@ -88,14 +89,18 @@ def get_credentials(
         return creds
 
     if not allow_reauth:
-        raise RuntimeError("No valid cached Google credentials. Run forgetMail --onboard.")
+        raise RuntimeError(
+            "No valid cached Google credentials. Run forgetMail --onboard."
+        )
 
     if client_secret_path is None:
         client_secret_path = DEFAULT_CLIENT_SECRET_PATH
 
     client_secret_path = client_secret_path.expanduser().resolve()
     if not client_secret_path.exists():
-        raise FileNotFoundError(f"client_secret.json not found at: {client_secret_path}")
+        raise FileNotFoundError(
+            f"client_secret.json not found at: {client_secret_path}"
+        )
 
     flow = InstalledAppFlow.from_client_secrets_file(str(client_secret_path), SCOPES)
     try:

@@ -15,7 +15,11 @@ from forgetmail.auth.telegram import (
 )
 from forgetmail.config import CONFIG_PATH, ensure_config_dir, load_config, save_config
 from forgetmail.gmail_client import GmailClient
-from forgetmail.llm import cache_llm_api_key, detect_ollama_models, validate_llm_connection
+from forgetmail.llm import (
+    cache_llm_api_key,
+    detect_ollama_models,
+    validate_llm_connection,
+)
 
 
 def _is_connectivity_failure(exc: Exception) -> bool:
@@ -48,7 +52,9 @@ def _import_client_secret() -> Path:
     target = DEFAULT_CLIENT_SECRET_PATH
 
     if target.exists():
-        use_existing = input(f"Use existing client secret at {target}? [Y/n]: ").strip().lower()
+        use_existing = (
+            input(f"Use existing client secret at {target}? [Y/n]: ").strip().lower()
+        )
         if use_existing in ("", "y", "yes"):
             return target
 
@@ -65,7 +71,9 @@ def _import_client_secret() -> Path:
     return target
 
 
-def _detect_chat_id_with_retry(token: str, attempts: int = 5, delay_seconds: int = 3) -> int:
+def _detect_chat_id_with_retry(
+    token: str, attempts: int = 5, delay_seconds: int = 3
+) -> int:
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
@@ -87,7 +95,9 @@ def _onboard_llm() -> dict[str, object]:
     if models:
         print("Detected local Ollama server.")
         print(f"Available models: {', '.join(models)}")
-        selected = input(f"Use local Ollama model '{models[0]}'? [Y/n]: ").strip().lower()
+        selected = (
+            input(f"Use local Ollama model '{models[0]}'? [Y/n]: ").strip().lower()
+        )
         if selected in ("", "y", "yes"):
             return {
                 "provider": "ollama",
@@ -96,8 +106,12 @@ def _onboard_llm() -> dict[str, object]:
                 "importance_threshold": 0.65,
             }
 
-    print("Ollama was not selected. Configure any provider using an OpenAI-compatible endpoint.")
-    provider = input("LLM provider [openai-compatible]: ").strip() or "openai-compatible"
+    print(
+        "Ollama was not selected. Configure any provider using an OpenAI-compatible endpoint."
+    )
+    provider = (
+        input("LLM provider [openai-compatible]: ").strip() or "openai-compatible"
+    )
     model = _prompt_non_empty("LLM model (for example gpt-4.1-mini): ")
     default_base = "https://api.openai.com"
     base_url = input(f"Base URL [{default_base}]: ").strip() or default_base
@@ -128,7 +142,9 @@ def run_onboarding_wizard() -> None:
     print(f"Google credentials saved. Client secret stored at {secret_path}.")
 
     print("\n[2/3] Telegram")
-    print("Create a bot using @BotFather, copy token, and send any message to your bot.")
+    print(
+        "Create a bot using @BotFather, copy token, and send any message to your bot."
+    )
     token = _prompt_non_empty("Bot token: ")
     bot_info = validate_token(token)
     cache_bot_token(token)
@@ -163,7 +179,9 @@ def run_onboarding_wizard() -> None:
         print("\nOnboarding complete.")
     except Exception as exc:
         print(f"Connectivity checks did not fully complete: {exc}")
-        print("Onboarding data was saved. You can re-run checks with forgetMail --check.")
+        print(
+            "Onboarding data was saved. You can re-run checks with forgetMail --check."
+        )
 
 
 def run_auth_wizard() -> None:
@@ -172,7 +190,9 @@ def run_auth_wizard() -> None:
 
 def validate_all() -> None:
     config = load_config()
-    refresh_timeout_seconds = int(os.getenv("FORGETMAIL_GOOGLE_REFRESH_TIMEOUT_SECONDS", "30"))
+    refresh_timeout_seconds = int(
+        os.getenv("FORGETMAIL_GOOGLE_REFRESH_TIMEOUT_SECONDS", "30")
+    )
 
     print("Checking Gmail API...", flush=True)
     profile = None
@@ -180,7 +200,9 @@ def validate_all() -> None:
     for attempt in range(1, 3):
         try:
             print(f"  Gmail attempt {attempt}/2", flush=True)
-            creds = get_credentials(allow_reauth=False, refresh_timeout_seconds=refresh_timeout_seconds)
+            creds = get_credentials(
+                allow_reauth=False, refresh_timeout_seconds=refresh_timeout_seconds
+            )
             gmail = GmailClient(creds, timeout_seconds=15)
             profile = gmail.get_profile()
             break

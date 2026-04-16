@@ -120,7 +120,9 @@ class AiogramBotClient:
 
         return self._run_with_bot(token, _operation)
 
-    def prepare_polling(self, token: str, *, drop_pending_updates: bool = False) -> None:
+    def prepare_polling(
+        self, token: str, *, drop_pending_updates: bool = False
+    ) -> None:
         async def _operation(bot: Bot) -> None:
             await bot.delete_webhook(drop_pending_updates=drop_pending_updates)
 
@@ -155,9 +157,14 @@ class AiogramBotClient:
 
         return self._run_with_bot(token, _operation)
 
-    def configure_bot_commands(self, token: str, commands: list[dict[str, str]]) -> None:
+    def configure_bot_commands(
+        self, token: str, commands: list[dict[str, str]]
+    ) -> None:
         async def _operation(bot: Bot) -> None:
-            payload = [BotCommand(command=item["command"], description=item["description"]) for item in commands]
+            payload = [
+                BotCommand(command=item["command"], description=item["description"])
+                for item in commands
+            ]
             await bot.set_my_commands(payload)
 
         self._run_with_bot(token, _operation)
@@ -168,7 +175,9 @@ class AiogramBotClient:
 
         self._run_with_bot(token, _operation)
 
-    def answer_callback_query(self, token: str, callback_query_id: str, text: str) -> None:
+    def answer_callback_query(
+        self, token: str, callback_query_id: str, text: str
+    ) -> None:
         async def _operation(bot: Bot) -> None:
             await bot.answer_callback_query(
                 callback_query_id=callback_query_id,
@@ -205,7 +214,9 @@ class AiogramBotClient:
                                 text="Not important",
                                 callback_data=f"notimportant:{signal.message_id}:{signal.thread_id}",
                             ),
-                            InlineKeyboardButton(text="Reply", callback_data=f"reply:{signal.thread_id}"),
+                            InlineKeyboardButton(
+                                text="Reply", callback_data=f"reply:{signal.thread_id}"
+                            ),
                         ]
                     ]
                 )
