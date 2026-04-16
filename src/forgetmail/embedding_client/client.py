@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 import httpx
 
-from forgetmail.classifier import EmailCandidate
-
 
 class EmbeddingError(RuntimeError):
     pass
@@ -23,7 +21,10 @@ class EmbeddingClient:
     def from_config(cls, config: dict) -> "EmbeddingClient":
         provider = str(config.get("provider", "ollama")).strip().lower()
         model = str(config.get("model", "")).strip()
-        base_url = str(config.get("base_url", "http://127.0.0.1:11434")).strip() or "http://127.0.0.1:11434"
+        base_url = (
+            str(config.get("base_url", "http://127.0.0.1:11434")).strip()
+            or "http://127.0.0.1:11434"
+        )
         timeout_seconds = int(config.get("timeout_seconds", 30))
         batch_size = max(1, int(config.get("batch_size", 32)))
 
@@ -43,7 +44,9 @@ class EmbeddingClient:
             return []
 
         if self.provider != "ollama":
-            raise EmbeddingError("Only local Ollama embeddings are supported in this phase.")
+            raise EmbeddingError(
+                "Only local Ollama embeddings are supported in this phase."
+            )
 
         vectors: list[list[float]] = []
         for start in range(0, len(texts), self.batch_size):
@@ -83,14 +86,9 @@ class EmbeddingClient:
                 try:
                     vector.append(float(value))
                 except (TypeError, ValueError) as exc:
-                    raise EmbeddingError("Embedding vector contains non-numeric values.") from exc
+                    raise EmbeddingError(
+                        "Embedding vector contains non-numeric values."
+                    ) from exc
             normalized.append(vector)
 
         return normalized
-
-
-def candidate_to_embedding_text(candidate: EmailCandidate) -> str:
-    sender = " ".join(candidate.sender.split())
-    subject = " ".join(candidate.subject.split())
-    snippet = " ".join(candidate.snippet.split())
-    return f"From: {sender}\nSubject: {subject}\nSnippet: {snippet}".strip()

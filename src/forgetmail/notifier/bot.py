@@ -1,32 +1,26 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 
 from aiogram.types import Update
 
 from forgetmail.telegram import AiogramBotClient
 
+from .models import SignalNotification
+
 BOT_COMMANDS: list[dict[str, str]] = [
     {"command": "help", "description": "Show available bot commands"},
     {"command": "status", "description": "Show daemon and classifier status"},
     {"command": "signals", "description": "Show recent detected important signals"},
     {"command": "ask", "description": "Ask about your inbox: /ask <question>"},
-    {"command": "watchfor", "description": "Add watch context: /watchFor <context> [boost]"},
+    {
+        "command": "watchfor",
+        "description": "Add watch context: /watchFor <context> [boost]",
+    },
     {"command": "watchlist", "description": "List active watch rules"},
     {"command": "unwatch", "description": "Delete watch rule: /unwatch <id>"},
     {"command": "run", "description": "Run one immediate poll cycle"},
 ]
-
-
-@dataclass
-class SignalNotification:
-    message_id: str
-    thread_id: str
-    sender: str
-    subject: str
-    reason: str
-    score: float
 
 
 def _aiogram_client() -> AiogramBotClient:
@@ -67,7 +61,9 @@ def answer_callback_query(token: str, callback_query_id: str, text: str) -> None
     _aiogram_client().answer_callback_query(token, callback_query_id, text)
 
 
-def send_signal_notifications(token: str, chat_id: int, signals: list[SignalNotification]) -> set[str]:
+def send_signal_notifications(
+    token: str, chat_id: int, signals: list[SignalNotification]
+) -> set[str]:
     logging.debug("Notifier: sending signals=%s chat_id=%s", len(signals), chat_id)
     sent_ids = _aiogram_client().send_signal_notifications(token, chat_id, signals)
 

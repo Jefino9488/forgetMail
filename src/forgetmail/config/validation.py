@@ -1,106 +1,10 @@
 from __future__ import annotations
 
-from copy import deepcopy
-from pathlib import Path
 from typing import Any
-
-import tomllib
-
-CONFIG_DIR = Path.home() / ".config" / "forgetmail"
-CONFIG_PATH = CONFIG_DIR / "config.toml"
-
-DEFAULT_CONFIG: dict[str, Any] = {
-    "telegram": {
-        "chat_id": 0,
-        "mode": "polling",
-    },
-    "gmail": {
-        "poll_interval_seconds": 180,
-        "idle_poll_interval_seconds": 180,
-        "lookback_days": 7,
-        "max_messages_per_poll": 30,
-    },
-    "llm": {
-        "provider": "ollama",
-        "model": "",
-        "base_url": "http://127.0.0.1:11434",
-        "importance_threshold": 0.65,
-        "timeout_seconds": 180,
-        "batch_size": 8,
-        "prompt_style": "caveman",
-        "temperature": 0.1,
-        "schema_strict": True,
-        "ask_enabled": True,
-        "ask_top_k": 6,
-        "ask_timeout_seconds": 90,
-        "ask_max_context_chars": 3500,
-        "ask_max_citations": 3,
-        "few_shot_max_examples": 4,
-    },
-    "embeddings": {
-        "enabled": False,
-        "enable_vector_upsert": True,
-        "enable_vector_query": False,
-        "query_top_k": 6,
-        "min_similarity_for_boost": 0.78,
-        "max_similarity_boost": 0.20,
-        "min_important_neighbors": 1,
-        "provider": "ollama",
-        "model": "nomic-embed-text",
-        "base_url": "http://127.0.0.1:11434",
-        "batch_size": 32,
-        "timeout_seconds": 30,
-        "persist_path": str(CONFIG_DIR / "chroma"),
-        "collection": "emails",
-        "enable_corrections": True,
-        "corrections_collection": "email_corrections",
-        "corrections_top_k": 2,
-        "corrections_min_similarity": 0.72,
-    },
-    "log": {
-        "level": "INFO",
-        "file": "",
-        "http_debug": False,
-    },
-}
 
 
 class ConfigError(RuntimeError):
     pass
-
-
-def ensure_config_dir() -> None:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def save_config(config: dict[str, Any]) -> None:
-    import tomli_w
-
-    ensure_config_dir()
-    with CONFIG_PATH.open("wb") as file_obj:
-        tomli_w.dump(config, file_obj)
-
-
-def load_config() -> dict[str, Any]:
-    if not CONFIG_PATH.exists():
-        raise ConfigError("Config not found. Run forgetMail --onboard first.")
-
-    with CONFIG_PATH.open("rb") as file_obj:
-        loaded = tomllib.load(file_obj)
-
-    merged = merge_config(loaded)
-    validate_config(merged)
-    return merged
-
-
-def merge_config(config: dict[str, Any]) -> dict[str, Any]:
-    result = deepcopy(DEFAULT_CONFIG)
-    for section, section_values in config.items():
-        if isinstance(section_values, dict) and isinstance(result.get(section), dict):
-            result[section].update(section_values)
-        else:
-            result[section] = section_values
-    return result
 
 
 def validate_config(config: dict[str, Any]) -> None:
@@ -160,7 +64,10 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigError("llm.batch_size must be an integer >= 1.")
 
     prompt_style = config["llm"].get("prompt_style", "caveman")
-    if not isinstance(prompt_style, str) or prompt_style.strip().lower() not in {"caveman", "verbose"}:
+    if not isinstance(prompt_style, str) or prompt_style.strip().lower() not in {
+        "caveman",
+        "verbose",
+    }:
         raise ConfigError("llm.prompt_style must be 'caveman' or 'verbose'.")
 
     temperature = config["llm"].get("temperature", 0.1)
@@ -188,12 +95,22 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigError("llm.ask_max_context_chars must be an integer >= 500.")
 
     ask_max_citations = config["llm"].get("ask_max_citations", 3)
-    if not isinstance(ask_max_citations, int) or ask_max_citations < 1 or ask_max_citations > 8:
+    if (
+        not isinstance(ask_max_citations, int)
+        or ask_max_citations < 1
+        or ask_max_citations > 8
+    ):
         raise ConfigError("llm.ask_max_citations must be an integer between 1 and 8.")
 
     few_shot_max_examples = config["llm"].get("few_shot_max_examples", 4)
-    if not isinstance(few_shot_max_examples, int) or few_shot_max_examples < 0 or few_shot_max_examples > 12:
-        raise ConfigError("llm.few_shot_max_examples must be an integer between 0 and 12.")
+    if (
+        not isinstance(few_shot_max_examples, int)
+        or few_shot_max_examples < 0
+        or few_shot_max_examples > 12
+    ):
+        raise ConfigError(
+            "llm.few_shot_max_examples must be an integer between 0 and 12."
+        )
 
     embeddings_cfg = config["embeddings"]
 
@@ -214,12 +131,22 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigError("embeddings.query_top_k must be an integer >= 1.")
 
     min_similarity_for_boost = embeddings_cfg.get("min_similarity_for_boost", 0.78)
-    if not isinstance(min_similarity_for_boost, (int, float)) or not 0 <= float(min_similarity_for_boost) <= 1:
-        raise ConfigError("embeddings.min_similarity_for_boost must be a number between 0 and 1.")
+    if (
+        not isinstance(min_similarity_for_boost, (int, float))
+        or not 0 <= float(min_similarity_for_boost) <= 1
+    ):
+        raise ConfigError(
+            "embeddings.min_similarity_for_boost must be a number between 0 and 1."
+        )
 
     max_similarity_boost = embeddings_cfg.get("max_similarity_boost", 0.20)
-    if not isinstance(max_similarity_boost, (int, float)) or not 0 <= float(max_similarity_boost) <= 1:
-        raise ConfigError("embeddings.max_similarity_boost must be a number between 0 and 1.")
+    if (
+        not isinstance(max_similarity_boost, (int, float))
+        or not 0 <= float(max_similarity_boost) <= 1
+    ):
+        raise ConfigError(
+            "embeddings.max_similarity_boost must be a number between 0 and 1."
+        )
 
     min_important_neighbors = embeddings_cfg.get("min_important_neighbors", 1)
     if not isinstance(min_important_neighbors, int) or min_important_neighbors < 1:
@@ -260,17 +187,29 @@ def validate_config(config: dict[str, Any]) -> None:
     if not isinstance(enable_corrections, bool):
         raise ConfigError("embeddings.enable_corrections must be true or false.")
 
-    corrections_collection = embeddings_cfg.get("corrections_collection", "email_corrections")
-    if not isinstance(corrections_collection, str) or not corrections_collection.strip():
-        raise ConfigError("embeddings.corrections_collection must be a non-empty string.")
+    corrections_collection = embeddings_cfg.get(
+        "corrections_collection", "email_corrections"
+    )
+    if (
+        not isinstance(corrections_collection, str)
+        or not corrections_collection.strip()
+    ):
+        raise ConfigError(
+            "embeddings.corrections_collection must be a non-empty string."
+        )
 
     corrections_top_k = embeddings_cfg.get("corrections_top_k", 2)
     if not isinstance(corrections_top_k, int) or corrections_top_k < 1:
         raise ConfigError("embeddings.corrections_top_k must be an integer >= 1.")
 
     corrections_min_similarity = embeddings_cfg.get("corrections_min_similarity", 0.72)
-    if not isinstance(corrections_min_similarity, (int, float)) or not 0 <= float(corrections_min_similarity) <= 1:
-        raise ConfigError("embeddings.corrections_min_similarity must be a number between 0 and 1.")
+    if (
+        not isinstance(corrections_min_similarity, (int, float))
+        or not 0 <= float(corrections_min_similarity) <= 1
+    ):
+        raise ConfigError(
+            "embeddings.corrections_min_similarity must be a number between 0 and 1."
+        )
 
     log_level = config["log"].get("level")
     if not isinstance(log_level, str) or not log_level.strip():

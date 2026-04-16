@@ -6,15 +6,7 @@ from forgetmail.auth.google import get_credentials
 from forgetmail.classifier import EmailCandidate
 from forgetmail.gmail_client import GmailClient
 
-
-def _header_map(headers: list[dict[str, str]]) -> dict[str, str]:
-    mapped: dict[str, str] = {}
-    for item in headers:
-        key = item.get("name")
-        value = item.get("value")
-        if isinstance(key, str) and isinstance(value, str):
-            mapped[key.lower()] = value
-    return mapped
+from .parsing import _header_map
 
 
 def list_recent_unread_message_ids(
@@ -26,7 +18,9 @@ def list_recent_unread_message_ids(
     gmail = GmailClient(creds, timeout_seconds=30)
 
     query = f"is:unread newer_than:{lookback_days}d"
-    logging.debug("Poller: listing messages with query='%s' max_results=%s", query, max_messages)
+    logging.debug(
+        "Poller: listing messages with query='%s' max_results=%s", query, max_messages
+    )
     items = gmail.list_messages(query=query, max_results=max_messages)
     logging.debug("Poller: API returned message stubs=%s", len(items))
 
@@ -71,7 +65,9 @@ def fetch_recent_unread_messages(
     lookback_days: int,
     max_messages: int,
 ) -> list[EmailCandidate]:
-    ids = list_recent_unread_message_ids(lookback_days=lookback_days, max_messages=max_messages)
+    ids = list_recent_unread_message_ids(
+        lookback_days=lookback_days, max_messages=max_messages
+    )
     return fetch_message_candidates(ids)
 
 
@@ -89,7 +85,9 @@ def mark_messages_read(message_ids: list[str]) -> set[str]:
             gmail.modify_message_labels(message_id, remove_labels=["UNREAD"])
             marked.add(message_id)
         except Exception:
-            logging.exception("Poller: failed to mark message as read message_id=%s", message_id)
+            logging.exception(
+                "Poller: failed to mark message as read message_id=%s", message_id
+            )
 
     logging.debug("Poller: marked read successfully count=%s", len(marked))
     return marked

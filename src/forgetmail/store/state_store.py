@@ -4,9 +4,16 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from forgetmail.config import CONFIG_DIR, ensure_config_dir
+from forgetmail.config import ensure_config_dir
 
-STATE_DB_PATH = CONFIG_DIR / "state.db"
+from .constants import STATE_DB_PATH
+from .mappers import (
+    classification_event_row_to_dict,
+    feedback_correction_row_to_dict,
+    signal_event_row_to_dict,
+    watch_rule_row_to_dict,
+)
+from .schema import apply_schema
 
 
 class StateStore:
@@ -17,104 +24,7 @@ class StateStore:
         logging.debug("Store: initializing sqlite db at %s", self.db_path)
         ensure_config_dir()
         with self._connect() as conn:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=FULL")
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS seen_messages (
-                    message_id TEXT PRIMARY KEY,
-                    thread_id TEXT NOT NULL,
-                    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS config_cache (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS signal_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    message_id TEXT NOT NULL,
-                    thread_id TEXT NOT NULL,
-                    sender TEXT NOT NULL,
-                    subject TEXT NOT NULL,
-                    reason TEXT NOT NULL,
-                    score REAL NOT NULL,
-                    notified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS classification_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    message_id TEXT NOT NULL,
-                    thread_id TEXT NOT NULL,
-                    sender TEXT NOT NULL,
-                    subject TEXT NOT NULL,
-                    important INTEGER NOT NULL,
-                    score REAL NOT NULL,
-                    reason TEXT NOT NULL,
-                    provider TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    classified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS watch_rules (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    context TEXT NOT NULL,
-                    boost REAL NOT NULL DEFAULT 0.20,
-                    is_active INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS watch_rule_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    rule_id INTEGER NOT NULL,
-                    message_id TEXT NOT NULL,
-                    context TEXT NOT NULL,
-                    applied_boost REAL NOT NULL,
-                    matched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY(rule_id) REFERENCES watch_rules(id)
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS muted_threads (
-                    thread_id TEXT PRIMARY KEY,
-                    source TEXT NOT NULL,
-                    muted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS feedback_corrections (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    message_id TEXT NOT NULL,
-                    thread_id TEXT NOT NULL,
-                    original_important INTEGER NOT NULL,
-                    original_score REAL NOT NULL,
-                    original_reason TEXT NOT NULL,
-                    corrected_important INTEGER NOT NULL,
-                    correction_source TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
+            apply_schema(conn)
 
     def unseen_ids(self, message_ids: list[str]) -> set[str]:
         if not message_ids:
@@ -123,7 +33,9 @@ class StateStore:
         logging.debug("Store: checking unseen ids for count=%s", len(message_ids))
 
         placeholders = ",".join("?" for _ in message_ids)
-        query = f"SELECT message_id FROM seen_messages WHERE message_id IN ({placeholders})"
+        query = (
+            f"SELECT message_id FROM seen_messages WHERE message_id IN ({placeholders})"
+        )
         with self._connect() as conn:
             rows = conn.execute(query, message_ids).fetchall()
 
@@ -143,7 +55,9 @@ class StateStore:
                 rows,
             )
 
-    def record_signal_events(self, rows: list[tuple[str, str, str, str, str, float]]) -> None:
+    def record_signal_events(
+        self, rows: list[tuple[str, str, str, str, str, float]]
+    ) -> None:
         if not rows:
             return
 
@@ -176,7 +90,9 @@ class StateStore:
                 rows,
             )
 
-    def recent_classification_events(self, limit: int = 20) -> list[dict[str, str | float | int]]:
+    def recent_classification_events(
+        self, limit: int = 20
+    ) -> list[dict[str, str | float | int]]:
         with self._connect() as conn:
             raw_rows = conn.execute(
                 (
@@ -188,23 +104,7 @@ class StateStore:
                 (limit,),
             ).fetchall()
 
-        rows: list[dict[str, str | float | int]] = []
-        for raw in raw_rows:
-            rows.append(
-                {
-                    "message_id": str(raw[0]),
-                    "thread_id": str(raw[1]),
-                    "sender": str(raw[2]),
-                    "subject": str(raw[3]),
-                    "important": int(raw[4]),
-                    "score": float(raw[5]),
-                    "reason": str(raw[6]),
-                    "provider": str(raw[7]),
-                    "model": str(raw[8]),
-                    "classified_at": str(raw[9]),
-                }
-            )
-        return rows
+        return [classification_event_row_to_dict(raw) for raw in raw_rows]
 
     def add_watch_rule(self, context: str, boost: float = 0.20) -> int:
         context_value = context.strip()
@@ -219,7 +119,9 @@ class StateStore:
             )
             return int(cursor.lastrowid)
 
-    def list_watch_rules(self, active_only: bool = False) -> list[dict[str, str | float | int]]:
+    def list_watch_rules(
+        self, active_only: bool = False
+    ) -> list[dict[str, str | float | int]]:
         query = "SELECT id, context, boost, is_active, created_at FROM watch_rules"
         params: tuple[int, ...] = ()
         if active_only:
@@ -230,18 +132,7 @@ class StateStore:
         with self._connect() as conn:
             raw_rows = conn.execute(query, params).fetchall()
 
-        rows: list[dict[str, str | float | int]] = []
-        for raw in raw_rows:
-            rows.append(
-                {
-                    "id": int(raw[0]),
-                    "context": str(raw[1]),
-                    "boost": float(raw[2]),
-                    "is_active": int(raw[3]),
-                    "created_at": str(raw[4]),
-                }
-            )
-        return rows
+        return [watch_rule_row_to_dict(raw) for raw in raw_rows]
 
     def delete_watch_rule(self, rule_id: int) -> bool:
         with self._connect() as conn:
@@ -263,7 +154,11 @@ class StateStore:
             context = str(rule["context"]).lower()
             if not context:
                 continue
-            if context in sender_lower or context in subject_lower or context in snippet_lower:
+            if (
+                context in sender_lower
+                or context in subject_lower
+                or context in snippet_lower
+            ):
                 matches.append(rule)
         return matches
 
@@ -300,7 +195,9 @@ class StateStore:
             return False
 
         with self._connect() as conn:
-            cursor = conn.execute("DELETE FROM muted_threads WHERE thread_id = ?", (thread_value,))
+            cursor = conn.execute(
+                "DELETE FROM muted_threads WHERE thread_id = ?", (thread_value,)
+            )
             return cursor.rowcount > 0
 
     def muted_threads(self, thread_ids: list[str]) -> set[str]:
@@ -308,7 +205,9 @@ class StateStore:
             return set()
 
         placeholders = ",".join("?" for _ in thread_ids)
-        query = f"SELECT thread_id FROM muted_threads WHERE thread_id IN ({placeholders})"
+        query = (
+            f"SELECT thread_id FROM muted_threads WHERE thread_id IN ({placeholders})"
+        )
         with self._connect() as conn:
             rows = conn.execute(query, thread_ids).fetchall()
 
@@ -325,22 +224,11 @@ class StateStore:
                 (limit,),
             ).fetchall()
 
-        rows: list[dict[str, str | float]] = []
-        for raw in raw_rows:
-            rows.append(
-                {
-                    "message_id": str(raw[0]),
-                    "thread_id": str(raw[1]),
-                    "sender": str(raw[2]),
-                    "subject": str(raw[3]),
-                    "reason": str(raw[4]),
-                    "score": float(raw[5]),
-                    "notified_at": str(raw[6]),
-                }
-            )
-        return rows
+        return [signal_event_row_to_dict(raw) for raw in raw_rows]
 
-    def latest_classification_for_message(self, message_id: str) -> dict[str, str | float | int] | None:
+    def latest_classification_for_message(
+        self, message_id: str
+    ) -> dict[str, str | float | int] | None:
         message_value = message_id.strip()
         if not message_value:
             return None
@@ -360,18 +248,7 @@ class StateStore:
         if raw is None:
             return None
 
-        return {
-            "message_id": str(raw[0]),
-            "thread_id": str(raw[1]),
-            "sender": str(raw[2]),
-            "subject": str(raw[3]),
-            "important": int(raw[4]),
-            "score": float(raw[5]),
-            "reason": str(raw[6]),
-            "provider": str(raw[7]),
-            "model": str(raw[8]),
-            "classified_at": str(raw[9]),
-        }
+        return classification_event_row_to_dict(raw)
 
     def record_feedback_correction(
         self,
@@ -410,7 +287,9 @@ class StateStore:
                 ),
             )
 
-    def recent_feedback_corrections(self, limit: int = 20) -> list[dict[str, str | float | int]]:
+    def recent_feedback_corrections(
+        self, limit: int = 20
+    ) -> list[dict[str, str | float | int]]:
         with self._connect() as conn:
             raw_rows = conn.execute(
                 (
@@ -422,32 +301,31 @@ class StateStore:
                 (limit,),
             ).fetchall()
 
-        rows: list[dict[str, str | float | int]] = []
-        for raw in raw_rows:
-            rows.append(
-                {
-                    "id": int(raw[0]),
-                    "message_id": str(raw[1]),
-                    "thread_id": str(raw[2]),
-                    "original_important": int(raw[3]),
-                    "original_score": float(raw[4]),
-                    "original_reason": str(raw[5]),
-                    "corrected_important": int(raw[6]),
-                    "correction_source": str(raw[7]),
-                    "created_at": str(raw[8]),
-                }
-            )
-        return rows
+        return [feedback_correction_row_to_dict(raw) for raw in raw_rows]
 
     def stats(self) -> dict[str, int]:
         with self._connect() as conn:
-            seen_count = conn.execute("SELECT COUNT(*) FROM seen_messages").fetchone()[0]
-            signal_count = conn.execute("SELECT COUNT(*) FROM signal_events").fetchone()[0]
-            classification_count = conn.execute("SELECT COUNT(*) FROM classification_events").fetchone()[0]
-            watch_rule_count = conn.execute("SELECT COUNT(*) FROM watch_rules WHERE is_active = 1").fetchone()[0]
-            watch_rule_event_count = conn.execute("SELECT COUNT(*) FROM watch_rule_events").fetchone()[0]
-            muted_thread_count = conn.execute("SELECT COUNT(*) FROM muted_threads").fetchone()[0]
-            feedback_correction_count = conn.execute("SELECT COUNT(*) FROM feedback_corrections").fetchone()[0]
+            seen_count = conn.execute("SELECT COUNT(*) FROM seen_messages").fetchone()[
+                0
+            ]
+            signal_count = conn.execute(
+                "SELECT COUNT(*) FROM signal_events"
+            ).fetchone()[0]
+            classification_count = conn.execute(
+                "SELECT COUNT(*) FROM classification_events"
+            ).fetchone()[0]
+            watch_rule_count = conn.execute(
+                "SELECT COUNT(*) FROM watch_rules WHERE is_active = 1"
+            ).fetchone()[0]
+            watch_rule_event_count = conn.execute(
+                "SELECT COUNT(*) FROM watch_rule_events"
+            ).fetchone()[0]
+            muted_thread_count = conn.execute(
+                "SELECT COUNT(*) FROM muted_threads"
+            ).fetchone()[0]
+            feedback_correction_count = conn.execute(
+                "SELECT COUNT(*) FROM feedback_corrections"
+            ).fetchone()[0]
 
         return {
             "seen_messages": int(seen_count),
