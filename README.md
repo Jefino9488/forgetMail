@@ -28,6 +28,40 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+For fish shell:
+
+```fish
+source .venv/bin/activate.fish
+```
+
+## Development Tooling
+
+Install dev tools:
+
+```bash
+pip install -e .[dev]
+```
+
+Run lint and format checks:
+
+```bash
+ruff check .
+ruff format --check .
+```
+
+Format and auto-fix locally:
+
+```bash
+ruff check . --fix
+ruff format .
+```
+
+Enable auto-format/lint on commit:
+
+```bash
+pre-commit install
+```
+
 ## First-Time Onboarding
 
 Run interactive onboarding:
@@ -75,11 +109,11 @@ Secrets are read from environment variables first, then keyring.
 
 ## Project Layout
 
-- `src/forgetmail/daemon.py`: main loop and orchestration
-- `src/forgetmail/notifier.py`: Telegram messaging and command polling bridge
+- `src/forgetmail/daemon/`: main loop and orchestration
+- `src/forgetmail/notifier/`: Telegram messaging and command polling bridge
 - `src/forgetmail/telegram/`: aiogram client layer
-- `src/forgetmail/classifier.py`: LLM classification pipeline
-- `src/forgetmail/store.py`: SQLite state and events
+- `src/forgetmail/classifier/`: LLM classification pipeline
+- `src/forgetmail/store/`: SQLite state and events
 
 ## License
 
