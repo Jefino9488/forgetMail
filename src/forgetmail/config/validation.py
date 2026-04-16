@@ -95,11 +95,7 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ConfigError("llm.ask_max_context_chars must be an integer >= 500.")
 
     ask_max_citations = config["llm"].get("ask_max_citations", 3)
-    if (
-        not isinstance(ask_max_citations, int)
-        or ask_max_citations < 1
-        or ask_max_citations > 8
-    ):
+    if not isinstance(ask_max_citations, int) or ask_max_citations < 1 or ask_max_citations > 8:
         raise ConfigError("llm.ask_max_citations must be an integer between 1 and 8.")
 
     few_shot_max_examples = config["llm"].get("few_shot_max_examples", 4)
@@ -108,9 +104,7 @@ def validate_config(config: dict[str, Any]) -> None:
         or few_shot_max_examples < 0
         or few_shot_max_examples > 12
     ):
-        raise ConfigError(
-            "llm.few_shot_max_examples must be an integer between 0 and 12."
-        )
+        raise ConfigError("llm.few_shot_max_examples must be an integer between 0 and 12.")
 
     embeddings_cfg = config["embeddings"]
 
@@ -135,18 +129,14 @@ def validate_config(config: dict[str, Any]) -> None:
         not isinstance(min_similarity_for_boost, (int, float))
         or not 0 <= float(min_similarity_for_boost) <= 1
     ):
-        raise ConfigError(
-            "embeddings.min_similarity_for_boost must be a number between 0 and 1."
-        )
+        raise ConfigError("embeddings.min_similarity_for_boost must be a number between 0 and 1.")
 
     max_similarity_boost = embeddings_cfg.get("max_similarity_boost", 0.20)
     if (
         not isinstance(max_similarity_boost, (int, float))
         or not 0 <= float(max_similarity_boost) <= 1
     ):
-        raise ConfigError(
-            "embeddings.max_similarity_boost must be a number between 0 and 1."
-        )
+        raise ConfigError("embeddings.max_similarity_boost must be a number between 0 and 1.")
 
     min_important_neighbors = embeddings_cfg.get("min_important_neighbors", 1)
     if not isinstance(min_important_neighbors, int) or min_important_neighbors < 1:
@@ -187,16 +177,9 @@ def validate_config(config: dict[str, Any]) -> None:
     if not isinstance(enable_corrections, bool):
         raise ConfigError("embeddings.enable_corrections must be true or false.")
 
-    corrections_collection = embeddings_cfg.get(
-        "corrections_collection", "email_corrections"
-    )
-    if (
-        not isinstance(corrections_collection, str)
-        or not corrections_collection.strip()
-    ):
-        raise ConfigError(
-            "embeddings.corrections_collection must be a non-empty string."
-        )
+    corrections_collection = embeddings_cfg.get("corrections_collection", "email_corrections")
+    if not isinstance(corrections_collection, str) or not corrections_collection.strip():
+        raise ConfigError("embeddings.corrections_collection must be a non-empty string.")
 
     corrections_top_k = embeddings_cfg.get("corrections_top_k", 2)
     if not isinstance(corrections_top_k, int) or corrections_top_k < 1:
@@ -207,9 +190,7 @@ def validate_config(config: dict[str, Any]) -> None:
         not isinstance(corrections_min_similarity, (int, float))
         or not 0 <= float(corrections_min_similarity) <= 1
     ):
-        raise ConfigError(
-            "embeddings.corrections_min_similarity must be a number between 0 and 1."
-        )
+        raise ConfigError("embeddings.corrections_min_similarity must be a number between 0 and 1.")
 
     log_level = config["log"].get("level")
     if not isinstance(log_level, str) or not log_level.strip():

@@ -77,9 +77,7 @@ def _build_vector_query_hints(
     min_similarity = max(0.0, min(1.0, min_similarity))
     max_similarity_boost = float(embeddings_cfg.get("max_similarity_boost", 0.20))
     max_similarity_boost = max(0.0, min(1.0, max_similarity_boost))
-    min_important_neighbors = max(
-        1, int(embeddings_cfg.get("min_important_neighbors", 1))
-    )
+    min_important_neighbors = max(1, int(embeddings_cfg.get("min_important_neighbors", 1)))
 
     if not candidates or not embeddings_by_message_id or max_similarity_boost == 0.0:
         return {}
@@ -110,9 +108,7 @@ def _build_vector_query_hints(
     for index, candidate in enumerate(candidates):
         candidate_id = candidate.message_id
         neighbor_ids = (
-            ids_rows[index]
-            if index < len(ids_rows) and isinstance(ids_rows[index], list)
-            else []
+            ids_rows[index] if index < len(ids_rows) and isinstance(ids_rows[index], list) else []
         )
         neighbors_meta = (
             metadata_rows[index]
@@ -136,9 +132,7 @@ def _build_vector_query_hints(
                 continue
 
             metadata = (
-                neighbors_meta[neighbor_index]
-                if neighbor_index < len(neighbors_meta)
-                else None
+                neighbors_meta[neighbor_index] if neighbor_index < len(neighbors_meta) else None
             )
             if not isinstance(metadata, dict):
                 continue
@@ -166,9 +160,7 @@ def _build_vector_query_hints(
 
             important_hits += 1
             best_similarity = max(best_similarity, similarity)
-            strongest_weight = max(
-                strongest_weight, similarity * max(0.25, historical_score)
-            )
+            strongest_weight = max(strongest_weight, similarity * max(0.25, historical_score))
 
         if important_hits < min_important_neighbors or strongest_weight <= 0:
             continue
@@ -209,9 +201,7 @@ def _build_correction_few_shot_examples(
     if len(ordered_embeddings) != len(candidates):
         return []
 
-    results = correction_store.query_similar_by_embeddings(
-        ordered_embeddings, top_k=query_top_k
-    )
+    results = correction_store.query_similar_by_embeddings(ordered_embeddings, top_k=query_top_k)
     ids_rows = results.get("ids")
     metadata_rows = results.get("metadatas")
     documents_rows = results.get("documents")
@@ -222,9 +212,7 @@ def _build_correction_few_shot_examples(
     by_correction_id: dict[str, tuple[float, dict[str, Any]]] = {}
     for index in range(len(candidates)):
         row_ids = (
-            ids_rows[index]
-            if index < len(ids_rows) and isinstance(ids_rows[index], list)
-            else []
+            ids_rows[index] if index < len(ids_rows) and isinstance(ids_rows[index], list) else []
         )
         row_meta = (
             metadata_rows[index]
@@ -265,8 +253,7 @@ def _build_correction_few_shot_examples(
             except (TypeError, ValueError):
                 corrected_important = False
             reason = (
-                str(metadata.get("original_reason", "user correction")).strip()
-                or "user correction"
+                str(metadata.get("original_reason", "user correction")).strip() or "user correction"
             )
 
             text = ""
@@ -285,9 +272,7 @@ def _build_correction_few_shot_examples(
             if previous is None or similarity > previous[0]:
                 by_correction_id[correction_id] = (similarity, example)
 
-    sorted_examples = sorted(
-        by_correction_id.values(), key=lambda item: item[0], reverse=True
-    )
+    sorted_examples = sorted(by_correction_id.values(), key=lambda item: item[0], reverse=True)
     return [item[1] for item in sorted_examples[:max_examples]]
 
 
@@ -396,9 +381,7 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
                 embeddings_by_message_id=embeddings_by_message_id,
                 embeddings_cfg=embeddings_cfg,
             )
-            logging.debug(
-                "Vector query hints generated rows=%s", len(vector_query_hints)
-            )
+            logging.debug("Vector query hints generated rows=%s", len(vector_query_hints))
         except Exception as exc:
             logging.warning(
                 "Vector query failed; continuing without retrieval boosts: %s",
@@ -406,9 +389,7 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
             )
 
     correction_few_shot_examples: list[dict[str, Any]] = []
-    if embeddings_by_message_id and bool(
-        embeddings_cfg.get("enable_corrections", True)
-    ):
+    if embeddings_by_message_id and bool(embeddings_cfg.get("enable_corrections", True)):
         try:
             correction_store = _corrections_vector_store_from_config(embeddings_cfg)
             correction_few_shot_examples = _build_correction_few_shot_examples(
@@ -435,9 +416,7 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
             few_shot_examples=correction_few_shot_examples,
         )
     except LLMError as exc:
-        logging.warning(
-            "Skipping cycle notifications due to LLM classification failure: %s", exc
-        )
+        logging.warning("Skipping cycle notifications due to LLM classification failure: %s", exc)
         return {
             "fetched": len(message_ids),
             "unseen": len(candidates),
@@ -643,9 +622,7 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
     logging.debug("Marked read in Gmail message_ids=%s", len(read_marked_ids))
     mark_ids = set(read_marked_ids) | sent_ids
 
-    rows_to_mark = [
-        (message_id, all_by_id[message_id].thread_id) for message_id in mark_ids
-    ]
+    rows_to_mark = [(message_id, all_by_id[message_id].thread_id) for message_id in mark_ids]
     store.mark_seen(rows_to_mark)
     logging.debug("Marked seen message_ids=%s", len(rows_to_mark))
 

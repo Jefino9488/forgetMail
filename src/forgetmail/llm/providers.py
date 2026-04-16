@@ -46,9 +46,7 @@ def validate_llm_connection(llm_config: dict[str, Any]) -> str:
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    response = httpx.get(
-        f"{base_url.rstrip('/')}/v1/models", headers=headers, timeout=10
-    )
+    response = httpx.get(f"{base_url.rstrip('/')}/v1/models", headers=headers, timeout=10)
     response.raise_for_status()
     return f"Provider '{provider}' reachable via {base_url}"
 
@@ -78,9 +76,7 @@ def _call_ollama_json(
         "options": {"temperature": _resolve_temperature(llm_config)},
     }
 
-    response = httpx.post(
-        f"{base_url.rstrip('/')}/api/chat", json=payload, timeout=timeout_seconds
-    )
+    response = httpx.post(f"{base_url.rstrip('/')}/api/chat", json=payload, timeout=timeout_seconds)
     response.raise_for_status()
     data = response.json()
     content = data.get("message", {}).get("content", "")

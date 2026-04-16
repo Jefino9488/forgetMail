@@ -35,9 +35,7 @@ def _resolve_temperature(llm_config: dict[str, Any]) -> float:
     return max(0.0, min(1.0, temperature))
 
 
-def _validate_answer_payload(
-    payload: dict[str, Any], *, max_citations: int
-) -> dict[str, Any]:
+def _validate_answer_payload(payload: dict[str, Any], *, max_citations: int) -> dict[str, Any]:
     answer = payload.get("answer")
     if not isinstance(answer, str) or not answer.strip():
         raise LLMError("LLM answer payload missing non-empty 'answer'.")

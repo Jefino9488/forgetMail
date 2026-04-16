@@ -139,9 +139,7 @@ class DaemonE2ETests(unittest.TestCase):
                 ),
                 patch(
                     "forgetmail.daemon.send_text_message",
-                    side_effect=lambda _token, _chat_id, text: sent_messages.append(
-                        text
-                    ),
+                    side_effect=lambda _token, _chat_id, text: sent_messages.append(text),
                 ),
                 patch(
                     "forgetmail.daemon.answer_callback_query",
@@ -163,9 +161,7 @@ class DaemonE2ETests(unittest.TestCase):
             self.assertEqual(rows[0]["corrected_important"], 1)
             self.assertEqual(store.muted_threads(["t1"]), set())
             self.assertIn("Marked important", callback_acks)
-            self.assertTrue(
-                any("influence future classifications" in msg for msg in sent_messages)
-            )
+            self.assertTrue(any("influence future classifications" in msg for msg in sent_messages))
 
     def test_feedback_callback_notimportant_records_correction_and_mutes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

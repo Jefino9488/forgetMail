@@ -44,9 +44,7 @@ class EmbeddingClient:
             return []
 
         if self.provider != "ollama":
-            raise EmbeddingError(
-                "Only local Ollama embeddings are supported in this phase."
-            )
+            raise EmbeddingError("Only local Ollama embeddings are supported in this phase.")
 
         vectors: list[list[float]] = []
         for start in range(0, len(texts), self.batch_size):
@@ -86,9 +84,7 @@ class EmbeddingClient:
                 try:
                     vector.append(float(value))
                 except (TypeError, ValueError) as exc:
-                    raise EmbeddingError(
-                        "Embedding vector contains non-numeric values."
-                    ) from exc
+                    raise EmbeddingError("Embedding vector contains non-numeric values.") from exc
             normalized.append(vector)
 
         return normalized

@@ -11,9 +11,7 @@ from .parsing import _parse_rows
 from .prompts import _build_system_prompt
 
 
-def _chunk_messages(
-    messages: list[EmailCandidate], chunk_size: int
-) -> list[list[EmailCandidate]]:
+def _chunk_messages(messages: list[EmailCandidate], chunk_size: int) -> list[list[EmailCandidate]]:
     size = max(1, chunk_size)
     return [messages[index : index + size] for index in range(0, len(messages), size)]
 

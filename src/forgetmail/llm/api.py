@@ -15,12 +15,8 @@ def call_classifier_json(
 ) -> dict[str, Any]:
     provider = str(llm_config.get("provider", "")).strip().lower()
     if provider == "ollama":
-        return _call_ollama_json(
-            llm_config, system_prompt, user_prompt, timeout_seconds
-        )
-    return _call_openai_compatible_json(
-        llm_config, system_prompt, user_prompt, timeout_seconds
-    )
+        return _call_ollama_json(llm_config, system_prompt, user_prompt, timeout_seconds)
+    return _call_openai_compatible_json(llm_config, system_prompt, user_prompt, timeout_seconds)
 
 
 def call_answer_json(

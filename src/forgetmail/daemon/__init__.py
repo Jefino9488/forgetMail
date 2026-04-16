@@ -45,9 +45,7 @@ def _setup_logging(
     log_file: str | None = None,
     http_debug: bool = False,
 ) -> None:
-    level = (
-        logging.DEBUG if debug else getattr(logging, level_name.upper(), logging.INFO)
-    )
+    level = logging.DEBUG if debug else getattr(logging, level_name.upper(), logging.INFO)
     handlers: list[logging.Handler] = [logging.StreamHandler()]
     if isinstance(log_file, str) and log_file.strip():
         file_path = Path(log_file).expanduser()
@@ -70,9 +68,7 @@ def _setup_logging(
             logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
-def _build_signals(
-    messages, classifications, threshold: float
-) -> list[SignalNotification]:
+def _build_signals(messages, classifications, threshold: float) -> list[SignalNotification]:
     class_map = {item.message_id: item for item in classifications}
     signals: list[SignalNotification] = []
     for message in messages:
@@ -114,9 +110,7 @@ def _format_recent_signals(rows: list[dict[str, str | float]]) -> str:
     lines = ["Recent signals:"]
     for item in rows:
         lines.append(
-            (
-                f"- {item['notified_at']} | {item['subject']} | score={float(item['score']):.2f}"
-            )
+            (f"- {item['notified_at']} | {item['subject']} | score={float(item['score']):.2f}")
         )
     return "\n".join(lines)
 
@@ -179,9 +173,7 @@ def _format_watch_rules(store: StateStore) -> str:
     lines = ["Active watch rules:"]
     for item in rows[:20]:
         lines.append(
-            (
-                f"- id={item['id']} context={item['context']} boost={float(item['boost']):.2f}"
-            )
+            (f"- id={item['id']} context={item['context']} boost={float(item['boost']):.2f}")
         )
     return "\n".join(lines)
 
@@ -279,16 +271,12 @@ def _build_ask_context_rows(
     first_ids = ids_rows[0] if isinstance(ids_rows[0], list) else []
     first_meta = (
         metadata_rows[0]
-        if isinstance(metadata_rows, list)
-        and metadata_rows
-        and isinstance(metadata_rows[0], list)
+        if isinstance(metadata_rows, list) and metadata_rows and isinstance(metadata_rows[0], list)
         else []
     )
     first_distances = (
         distance_rows[0]
-        if isinstance(distance_rows, list)
-        and distance_rows
-        and isinstance(distance_rows[0], list)
+        if isinstance(distance_rows, list) and distance_rows and isinstance(distance_rows[0], list)
         else []
     )
 
@@ -374,9 +362,7 @@ def _handle_ask_command(
         )
     except Exception as exc:
         logging.warning("Ask retrieval failed: %s", exc)
-        send_text_message(
-            token, expected_chat_id, "Could not retrieve inbox context right now."
-        )
+        send_text_message(token, expected_chat_id, "Could not retrieve inbox context right now.")
         return
 
     if not context_rows:
@@ -394,9 +380,7 @@ def _handle_ask_command(
             context_rows=context_rows,
             timeout_seconds=max(5, int(llm_cfg.get("ask_timeout_seconds", 90))),
         )
-        send_text_message(
-            token, expected_chat_id, _format_ask_response(question, answer_payload)
-        )
+        send_text_message(token, expected_chat_id, _format_ask_response(question, answer_payload))
     except Exception as exc:
         logging.warning("Ask answer generation failed: %s", exc)
         send_text_message(
@@ -407,9 +391,7 @@ def _handle_ask_command(
 
 
 def _parse_feedback_callback_data(callback_data: str) -> tuple[str, str, str] | None:
-    if callback_data.startswith("important:") or callback_data.startswith(
-        "notimportant:"
-    ):
+    if callback_data.startswith("important:") or callback_data.startswith("notimportant:"):
         parts = callback_data.split(":", maxsplit=2)
         if len(parts) == 3:
             return parts[0], parts[1].strip(), parts[2].strip()
@@ -453,9 +435,7 @@ def _upsert_feedback_correction_vector(
     embedding = embedding_client.embed_texts([correction_text])[0]
     correction_store = _corrections_vector_store_from_config(embeddings_cfg)
     now = datetime.now(timezone.utc).isoformat()
-    correction_id = (
-        f"{message_id}:{int(datetime.now(timezone.utc).timestamp())}:{corrected_label}"
-    )
+    correction_id = f"{message_id}:{int(datetime.now(timezone.utc).timestamp())}:{corrected_label}"
     correction_store.upsert_documents(
         ids=[correction_id],
         documents=[correction_text],
@@ -504,9 +484,7 @@ def _build_correction_few_shot_examples(
     if len(ordered_embeddings) != len(candidates):
         return []
 
-    results = correction_store.query_similar_by_embeddings(
-        ordered_embeddings, top_k=query_top_k
-    )
+    results = correction_store.query_similar_by_embeddings(ordered_embeddings, top_k=query_top_k)
     ids_rows = results.get("ids")
     metadata_rows = results.get("metadatas")
     documents_rows = results.get("documents")
@@ -517,9 +495,7 @@ def _build_correction_few_shot_examples(
     by_correction_id: dict[str, tuple[float, dict[str, Any]]] = {}
     for index in range(len(candidates)):
         row_ids = (
-            ids_rows[index]
-            if index < len(ids_rows) and isinstance(ids_rows[index], list)
-            else []
+            ids_rows[index] if index < len(ids_rows) and isinstance(ids_rows[index], list) else []
         )
         row_meta = (
             metadata_rows[index]
@@ -560,8 +536,7 @@ def _build_correction_few_shot_examples(
             except (TypeError, ValueError):
                 corrected_important = False
             reason = (
-                str(metadata.get("original_reason", "user correction")).strip()
-                or "user correction"
+                str(metadata.get("original_reason", "user correction")).strip() or "user correction"
             )
 
             text = ""
@@ -580,9 +555,7 @@ def _build_correction_few_shot_examples(
             if previous is None or similarity > previous[0]:
                 by_correction_id[correction_id] = (similarity, example)
 
-    sorted_examples = sorted(
-        by_correction_id.values(), key=lambda item: item[0], reverse=True
-    )
+    sorted_examples = sorted(by_correction_id.values(), key=lambda item: item[0], reverse=True)
     return [item[1] for item in sorted_examples[:max_examples]]
 
 
@@ -629,14 +602,10 @@ def _handle_callback_query(
 
         corrected_important = action == "important"
 
-        classification = (
-            store.latest_classification_for_message(message_id) if message_id else None
-        )
+        classification = store.latest_classification_for_message(message_id) if message_id else None
         original_important = bool(int((classification or {}).get("important", 0)))
         original_score = float((classification or {}).get("score", 0.0))
-        original_reason = str(
-            (classification or {}).get("reason", "No reason provided")
-        )
+        original_reason = str((classification or {}).get("reason", "No reason provided"))
 
         if action == "notimportant":
             store.mute_thread(thread_id=thread_id)
@@ -750,9 +719,7 @@ def _build_vector_query_hints(
     min_similarity = max(0.0, min(1.0, min_similarity))
     max_similarity_boost = float(embeddings_cfg.get("max_similarity_boost", 0.20))
     max_similarity_boost = max(0.0, min(1.0, max_similarity_boost))
-    min_important_neighbors = max(
-        1, int(embeddings_cfg.get("min_important_neighbors", 1))
-    )
+    min_important_neighbors = max(1, int(embeddings_cfg.get("min_important_neighbors", 1)))
 
     if not candidates or not embeddings_by_message_id or max_similarity_boost == 0.0:
         return {}
@@ -783,9 +750,7 @@ def _build_vector_query_hints(
     for index, candidate in enumerate(candidates):
         candidate_id = candidate.message_id
         neighbor_ids = (
-            ids_rows[index]
-            if index < len(ids_rows) and isinstance(ids_rows[index], list)
-            else []
+            ids_rows[index] if index < len(ids_rows) and isinstance(ids_rows[index], list) else []
         )
         neighbors_meta = (
             metadata_rows[index]
@@ -809,9 +774,7 @@ def _build_vector_query_hints(
                 continue
 
             metadata = (
-                neighbors_meta[neighbor_index]
-                if neighbor_index < len(neighbors_meta)
-                else None
+                neighbors_meta[neighbor_index] if neighbor_index < len(neighbors_meta) else None
             )
             if not isinstance(metadata, dict):
                 continue
@@ -839,9 +802,7 @@ def _build_vector_query_hints(
 
             important_hits += 1
             best_similarity = max(best_similarity, similarity)
-            strongest_weight = max(
-                strongest_weight, similarity * max(0.25, historical_score)
-            )
+            strongest_weight = max(strongest_weight, similarity * max(0.25, historical_score))
 
         if important_hits < min_important_neighbors or strongest_weight <= 0:
             continue
@@ -882,9 +843,7 @@ def _process_bot_commands(
         if isinstance(update_id, int):
             candidate_offset = update_id + 1
             next_offset = (
-                candidate_offset
-                if next_offset is None
-                else max(next_offset, candidate_offset)
+                candidate_offset if next_offset is None else max(next_offset, candidate_offset)
             )
 
         callback_query = update.callback_query
@@ -919,9 +878,7 @@ def _process_bot_commands(
             continue
 
         if command == "/status":
-            send_text_message(
-                token, expected_chat_id, _format_status(config, store, last_cycle)
-            )
+            send_text_message(token, expected_chat_id, _format_status(config, store, last_cycle))
             continue
 
         if command == "/signals":
@@ -964,9 +921,7 @@ def _process_bot_commands(
 
         if command == "/run":
             should_run = True
-            send_text_message(
-                token, expected_chat_id, "Running an immediate poll cycle now."
-            )
+            send_text_message(token, expected_chat_id, "Running an immediate poll cycle now.")
             continue
 
         send_text_message(
@@ -1005,9 +960,7 @@ def run_daemon(debug: bool = False) -> None:
         configure_bot_commands(telegram_token)
         logging.debug("Telegram bot commands configured.")
     except Exception:
-        logging.warning(
-            "Could not configure Telegram bot commands via aiogram.", exc_info=True
-        )
+        logging.warning("Could not configure Telegram bot commands via aiogram.", exc_info=True)
 
     stop = {"value": False}
 
@@ -1071,9 +1024,7 @@ def run_daemon(debug: bool = False) -> None:
                             "Immediate poll failed. Check daemon logs.",
                         )
                     except Exception:
-                        logging.exception(
-                            "Failed to notify Telegram about immediate poll failure"
-                        )
+                        logging.exception("Failed to notify Telegram about immediate poll failure")
 
             cycle += 1
             logging.debug("Starting poll cycle #%s", cycle)

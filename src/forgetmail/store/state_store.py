@@ -33,9 +33,7 @@ class StateStore:
         logging.debug("Store: checking unseen ids for count=%s", len(message_ids))
 
         placeholders = ",".join("?" for _ in message_ids)
-        query = (
-            f"SELECT message_id FROM seen_messages WHERE message_id IN ({placeholders})"
-        )
+        query = f"SELECT message_id FROM seen_messages WHERE message_id IN ({placeholders})"
         with self._connect() as conn:
             rows = conn.execute(query, message_ids).fetchall()
 
@@ -55,9 +53,7 @@ class StateStore:
                 rows,
             )
 
-    def record_signal_events(
-        self, rows: list[tuple[str, str, str, str, str, float]]
-    ) -> None:
+    def record_signal_events(self, rows: list[tuple[str, str, str, str, str, float]]) -> None:
         if not rows:
             return
 
@@ -90,9 +86,7 @@ class StateStore:
                 rows,
             )
 
-    def recent_classification_events(
-        self, limit: int = 20
-    ) -> list[dict[str, str | float | int]]:
+    def recent_classification_events(self, limit: int = 20) -> list[dict[str, str | float | int]]:
         with self._connect() as conn:
             raw_rows = conn.execute(
                 (
@@ -119,9 +113,7 @@ class StateStore:
             )
             return int(cursor.lastrowid)
 
-    def list_watch_rules(
-        self, active_only: bool = False
-    ) -> list[dict[str, str | float | int]]:
+    def list_watch_rules(self, active_only: bool = False) -> list[dict[str, str | float | int]]:
         query = "SELECT id, context, boost, is_active, created_at FROM watch_rules"
         params: tuple[int, ...] = ()
         if active_only:
@@ -154,11 +146,7 @@ class StateStore:
             context = str(rule["context"]).lower()
             if not context:
                 continue
-            if (
-                context in sender_lower
-                or context in subject_lower
-                or context in snippet_lower
-            ):
+            if context in sender_lower or context in subject_lower or context in snippet_lower:
                 matches.append(rule)
         return matches
 
@@ -195,9 +183,7 @@ class StateStore:
             return False
 
         with self._connect() as conn:
-            cursor = conn.execute(
-                "DELETE FROM muted_threads WHERE thread_id = ?", (thread_value,)
-            )
+            cursor = conn.execute("DELETE FROM muted_threads WHERE thread_id = ?", (thread_value,))
             return cursor.rowcount > 0
 
     def muted_threads(self, thread_ids: list[str]) -> set[str]:
@@ -205,9 +191,7 @@ class StateStore:
             return set()
 
         placeholders = ",".join("?" for _ in thread_ids)
-        query = (
-            f"SELECT thread_id FROM muted_threads WHERE thread_id IN ({placeholders})"
-        )
+        query = f"SELECT thread_id FROM muted_threads WHERE thread_id IN ({placeholders})"
         with self._connect() as conn:
             rows = conn.execute(query, thread_ids).fetchall()
 
@@ -287,9 +271,7 @@ class StateStore:
                 ),
             )
 
-    def recent_feedback_corrections(
-        self, limit: int = 20
-    ) -> list[dict[str, str | float | int]]:
+    def recent_feedback_corrections(self, limit: int = 20) -> list[dict[str, str | float | int]]:
         with self._connect() as conn:
             raw_rows = conn.execute(
                 (
@@ -305,12 +287,8 @@ class StateStore:
 
     def stats(self) -> dict[str, int]:
         with self._connect() as conn:
-            seen_count = conn.execute("SELECT COUNT(*) FROM seen_messages").fetchone()[
-                0
-            ]
-            signal_count = conn.execute(
-                "SELECT COUNT(*) FROM signal_events"
-            ).fetchone()[0]
+            seen_count = conn.execute("SELECT COUNT(*) FROM seen_messages").fetchone()[0]
+            signal_count = conn.execute("SELECT COUNT(*) FROM signal_events").fetchone()[0]
             classification_count = conn.execute(
                 "SELECT COUNT(*) FROM classification_events"
             ).fetchone()[0]
@@ -320,9 +298,7 @@ class StateStore:
             watch_rule_event_count = conn.execute(
                 "SELECT COUNT(*) FROM watch_rule_events"
             ).fetchone()[0]
-            muted_thread_count = conn.execute(
-                "SELECT COUNT(*) FROM muted_threads"
-            ).fetchone()[0]
+            muted_thread_count = conn.execute("SELECT COUNT(*) FROM muted_threads").fetchone()[0]
             feedback_correction_count = conn.execute(
                 "SELECT COUNT(*) FROM feedback_corrections"
             ).fetchone()[0]
