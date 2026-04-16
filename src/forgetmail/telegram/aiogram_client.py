@@ -242,7 +242,7 @@ class AiogramBotClient:
                             InlineKeyboardButton(
                                 text="Reply", callback_data=f"reply:{signal.thread_id}"
                             ),
-                        ]
+                        ],
                     ]
                 )
                 await bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)

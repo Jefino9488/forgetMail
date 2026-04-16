@@ -56,10 +56,10 @@ ruff check . --fix
 ruff format .
 ```
 
-Enable auto-format/lint on commit:
+Enable auto-format/lint on commit and push:
 
 ```bash
-pre-commit install --config .github/pre-commit-config.yaml
+pre-commit install --hook-type pre-commit --hook-type pre-push --config .github/pre-commit-config.yaml
 ```
 
 ## First-Time Onboarding

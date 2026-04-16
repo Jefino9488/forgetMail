@@ -91,8 +91,8 @@ class DaemonE2ETests(unittest.TestCase):
             ),
             patch(
                 "forgetmail.daemon.send_text_message_with_url_button",
-                side_effect=lambda token, chat_id, text, *, button_text, url: sent_button_messages.append(
-                    (token, chat_id, text, button_text, url)
+                side_effect=lambda token, chat_id, text, *, button_text, url: (
+                    sent_button_messages.append((token, chat_id, text, button_text, url))
                 ),
             ),
         ):
