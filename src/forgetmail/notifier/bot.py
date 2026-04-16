@@ -57,6 +57,23 @@ def send_text_message(token: str, chat_id: int, text: str) -> None:
     _aiogram_client().send_text_message(token, chat_id, text)
 
 
+def send_text_message_with_url_button(
+    token: str,
+    chat_id: int,
+    text: str,
+    *,
+    button_text: str,
+    url: str,
+) -> None:
+    _aiogram_client().send_text_message_with_url_button(
+        token,
+        chat_id,
+        text,
+        button_text=button_text,
+        url=url,
+    )
+
+
 def answer_callback_query(token: str, callback_query_id: str, text: str) -> None:
     _aiogram_client().answer_callback_query(token, callback_query_id, text)
 

@@ -98,6 +98,10 @@ def validate_config(config: dict[str, Any]) -> None:
     if not isinstance(ask_max_citations, int) or ask_max_citations < 1 or ask_max_citations > 8:
         raise ConfigError("llm.ask_max_citations must be an integer between 1 and 8.")
 
+    ask_min_confidence = config["llm"].get("ask_min_confidence", 0.5)
+    if not isinstance(ask_min_confidence, (int, float)) or not 0 <= float(ask_min_confidence) <= 1:
+        raise ConfigError("llm.ask_min_confidence must be a number between 0 and 1.")
+
     few_shot_max_examples = config["llm"].get("few_shot_max_examples", 4)
     if (
         not isinstance(few_shot_max_examples, int)

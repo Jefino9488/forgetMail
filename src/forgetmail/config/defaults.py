@@ -32,6 +32,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "ask_timeout_seconds": 90,
         "ask_max_context_chars": 3500,
         "ask_max_citations": 3,
+        "ask_min_confidence": 0.5,
         "few_shot_max_examples": 4,
     },
     "embeddings": {

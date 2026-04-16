@@ -435,6 +435,7 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
     logging.debug("Classifier returned rows=%s", len(classifications))
     class_map = {item.message_id: item for item in classifications}
     muted_threads = store.muted_threads([item.thread_id for item in candidates])
+    muted_messages = store.muted_messages([item.message_id for item in candidates])
 
     provider_name = str(llm_cfg.get("provider", "unknown"))
     model_name = str(llm_cfg.get("model", "unknown"))
@@ -515,6 +516,17 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
             adjusted_reason = f"{adjusted_reason} | muted thread"
             logging.debug(
                 "Muted thread suppression message_id=%s thread_id=%s adjusted_score=%.2f",
+                message.message_id,
+                message.thread_id,
+                adjusted_score,
+            )
+
+        if message.message_id in muted_messages:
+            adjusted_score = max(0.0, adjusted_score - 1.0)
+            important = False
+            adjusted_reason = f"{adjusted_reason} | muted message"
+            logging.debug(
+                "Muted message suppression message_id=%s thread_id=%s adjusted_score=%.2f",
                 message.message_id,
                 message.thread_id,
                 adjusted_score,

@@ -67,6 +67,28 @@ class StoreFeedbackTests(unittest.TestCase):
             self.assertTrue(store.unmute_thread("thread-x"))
             self.assertFalse(store.unmute_thread("thread-x"))
 
+    def test_mute_and_unmute_message(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "state.db"
+            store = StateStore(db_path=db_path)
+            store.initialize()
+
+            store.mute_message("m-1", "t-1")
+            self.assertEqual(store.muted_messages(["m-1", "m-2"]), {"m-1"})
+
+            self.assertTrue(store.unmute_message("m-1"))
+            self.assertFalse(store.unmute_message("m-1"))
+
+    def test_stats_include_muted_messages(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "state.db"
+            store = StateStore(db_path=db_path)
+            store.initialize()
+
+            store.mute_message("m-10", "t-10")
+            stats = store.stats()
+            self.assertEqual(stats.get("muted_messages"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

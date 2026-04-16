@@ -26,6 +26,7 @@ from forgetmail.notifier import (
     prepare_polling_mode,
     send_signal_notifications,
     send_text_message,
+    send_text_message_with_url_button,
     shutdown_client,
 )
 from forgetmail.poller import (
@@ -143,6 +144,7 @@ def _format_status(
         f"- watch_rules: {stats['watch_rules']}",
         f"- watch_rule_events: {stats['watch_rule_events']}",
         f"- muted_threads: {stats['muted_threads']}",
+        f"- muted_messages: {stats.get('muted_messages', 0)}",
         f"- feedback_corrections: {stats.get('feedback_corrections', 0)}",
     ]
 
@@ -235,15 +237,62 @@ def _corrections_vector_store_from_config(
     return VectorStore.from_config(corrections_cfg)
 
 
-def _format_ask_response(question: str, payload: dict[str, Any]) -> str:
+def _gmail_thread_url(thread_id: str) -> str:
+    return f"https://mail.google.com/mail/u/0/#all/{thread_id}"
+
+
+def _resolve_top_source_url(
+    payload: dict[str, Any],
+    thread_ids_by_message_id: dict[str, str] | None,
+) -> str:
+    citations = payload.get("citations", [])
+    if not isinstance(citations, list) or not citations:
+        return ""
+    if not isinstance(thread_ids_by_message_id, dict):
+        return ""
+
+    first_citation = citations[0]
+    if not isinstance(first_citation, dict):
+        return ""
+
+    first_message_id = str(first_citation.get("message_id", "")).strip()
+    if not first_message_id:
+        return ""
+
+    thread_id = thread_ids_by_message_id.get(first_message_id, "")
+    if not thread_id:
+        return ""
+
+    return _gmail_thread_url(thread_id)
+
+
+def _format_ask_response(
+    question: str,
+    payload: dict[str, Any],
+    *,
+    thread_ids_by_message_id: dict[str, str] | None = None,
+    min_confidence: float = 0.5,
+) -> str:
     answer = str(payload.get("answer", "")).strip()
     confidence = float(payload.get("confidence", 0.0))
     citations = payload.get("citations", [])
     if not answer:
         return "Could not produce an answer from your inbox context."
 
-    lines = [f"Q: {question}", f"A: {answer}", f"Confidence: {confidence:.2f}"]
+    clamped_min_confidence = max(0.0, min(1.0, float(min_confidence)))
+    is_low_confidence = confidence < clamped_min_confidence
+    lines = [f"Q: {question}"]
+    if is_low_confidence:
+        lines.append(f"A: unsure ({answer})")
+        lines.append(f"Confidence: {confidence:.2f} (low)")
+    else:
+        lines.append(f"A: {answer}")
+        lines.append(f"Confidence: {confidence:.2f}")
+
+    top_source_url = _resolve_top_source_url(payload, thread_ids_by_message_id)
     if isinstance(citations, list) and citations:
+        if top_source_url:
+            lines.append(f"Open top source: {top_source_url}")
         lines.append("Sources:")
         for item in citations:
             if not isinstance(item, dict):
@@ -253,7 +302,17 @@ def _format_ask_response(question: str, payload: dict[str, Any]) -> str:
             why = str(item.get("why", "relevant context")).strip() or "relevant context"
             if not message_id:
                 continue
-            lines.append(f"- [{message_id}] {subject} ({why})")
+            source_line = f"- [{message_id}] {subject} ({why})"
+            if isinstance(thread_ids_by_message_id, dict):
+                thread_id = thread_ids_by_message_id.get(message_id, "")
+                if thread_id:
+                    source_line = f"{source_line} -> {_gmail_thread_url(thread_id)}"
+            lines.append(source_line)
+
+    if is_low_confidence:
+        lines.append(
+            "Tip: refine your query with sender, timeframe, or exact keyword for better accuracy."
+        )
     return "\n".join(lines)
 
 
@@ -261,12 +320,12 @@ def _build_ask_context_rows(
     *,
     query_results: dict[str, Any],
     max_context_chars: int,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
     ids_rows = query_results.get("ids")
     metadata_rows = query_results.get("metadatas")
     distance_rows = query_results.get("distances")
     if not isinstance(ids_rows, list) or not ids_rows:
-        return []
+        return [], {}
 
     first_ids = ids_rows[0] if isinstance(ids_rows[0], list) else []
     first_meta = (
@@ -281,6 +340,7 @@ def _build_ask_context_rows(
     )
 
     context_rows: list[dict[str, Any]] = []
+    thread_ids_by_message_id: dict[str, str] = {}
     used_chars = 0
     for index, raw_id in enumerate(first_ids):
         if not isinstance(raw_id, str) or not raw_id.strip():
@@ -309,13 +369,16 @@ def _build_ask_context_rows(
             "reason": reason,
             "similarity": round(similarity, 4),
         }
+        thread_id = str(metadata.get("thread_id", "")).strip()
+        if thread_id:
+            thread_ids_by_message_id[raw_id] = thread_id
         row_chars = len(subject) + len(sender) + len(snippet) + len(reason)
         if context_rows and used_chars + row_chars > max_context_chars:
             break
         context_rows.append(row)
         used_chars += row_chars
 
-    return context_rows
+    return context_rows, thread_ids_by_message_id
 
 
 def _handle_ask_command(
@@ -356,7 +419,7 @@ def _handle_ask_command(
             query_embedding,
             top_k=max(1, int(llm_cfg.get("ask_top_k", 6))),
         )
-        context_rows = _build_ask_context_rows(
+        context_rows, thread_ids_by_message_id = _build_ask_context_rows(
             query_results=query_results,
             max_context_chars=max(500, int(llm_cfg.get("ask_max_context_chars", 3500))),
         )
@@ -380,7 +443,23 @@ def _handle_ask_command(
             context_rows=context_rows,
             timeout_seconds=max(5, int(llm_cfg.get("ask_timeout_seconds", 90))),
         )
-        send_text_message(token, expected_chat_id, _format_ask_response(question, answer_payload))
+        response_text = _format_ask_response(
+            question,
+            answer_payload,
+            thread_ids_by_message_id=thread_ids_by_message_id,
+            min_confidence=float(llm_cfg.get("ask_min_confidence", 0.5)),
+        )
+        top_source_url = _resolve_top_source_url(answer_payload, thread_ids_by_message_id)
+        if top_source_url:
+            send_text_message_with_url_button(
+                token,
+                expected_chat_id,
+                response_text,
+                button_text="Open top source",
+                url=top_source_url,
+            )
+        else:
+            send_text_message(token, expected_chat_id, response_text)
     except Exception as exc:
         logging.warning("Ask answer generation failed: %s", exc)
         send_text_message(
@@ -390,14 +469,22 @@ def _handle_ask_command(
         )
 
 
-def _parse_feedback_callback_data(callback_data: str) -> tuple[str, str, str] | None:
+def _parse_feedback_callback_data(callback_data: str) -> tuple[str, str, str, str] | None:
     if callback_data.startswith("important:") or callback_data.startswith("notimportant:"):
-        parts = callback_data.split(":", maxsplit=2)
+        parts = callback_data.split(":", maxsplit=3)
+        if len(parts) == 4:
+            action = parts[0]
+            message_id = parts[1].strip()
+            thread_id = parts[2].strip()
+            scope = parts[3].strip().lower()
+            if scope not in {"message", "thread"}:
+                scope = "thread"
+            return action, message_id, thread_id, scope
         if len(parts) == 3:
-            return parts[0], parts[1].strip(), parts[2].strip()
+            return parts[0], parts[1].strip(), parts[2].strip(), "thread"
         # Backward compatibility for older callback format: notimportant:<thread_id>
         if len(parts) == 2 and parts[0] == "notimportant":
-            return parts[0], "", parts[1].strip()
+            return parts[0], "", parts[1].strip(), "thread"
     return None
 
 
@@ -593,9 +680,24 @@ def _handle_callback_query(
         )
         return
 
+    if callback_data.startswith("undo:"):
+        undo_parts = callback_data.split(":", maxsplit=2)
+        if len(undo_parts) != 3:
+            answer_callback_query(token, callback_id, "Invalid undo payload")
+            return
+        message_id = undo_parts[1].strip()
+        thread_id = undo_parts[2].strip()
+        unmuted_message = store.unmute_message(message_id) if message_id else False
+        unmuted_thread = store.unmute_thread(thread_id) if thread_id else False
+        if unmuted_message or unmuted_thread:
+            answer_callback_query(token, callback_id, "Mute removed")
+        else:
+            answer_callback_query(token, callback_id, "Nothing to undo")
+        return
+
     feedback_parts = _parse_feedback_callback_data(callback_data)
     if feedback_parts is not None:
-        action, message_id, thread_id = feedback_parts
+        action, message_id, thread_id, scope = feedback_parts
         if not thread_id:
             answer_callback_query(token, callback_id, "Invalid thread id")
             return
@@ -608,9 +710,17 @@ def _handle_callback_query(
         original_reason = str((classification or {}).get("reason", "No reason provided"))
 
         if action == "notimportant":
-            store.mute_thread(thread_id=thread_id)
+            if scope == "message":
+                if not message_id:
+                    answer_callback_query(token, callback_id, "Invalid message id")
+                    return
+                store.mute_message(message_id=message_id, thread_id=thread_id)
+            else:
+                store.mute_thread(thread_id=thread_id)
         else:
             store.unmute_thread(thread_id)
+            if message_id:
+                store.unmute_message(message_id)
 
         if message_id:
             try:
@@ -621,26 +731,24 @@ def _handle_callback_query(
                     original_score=original_score,
                     original_reason=original_reason,
                     corrected_important=corrected_important,
-                    correction_source=f"telegram_{action}_button",
+                    correction_source=f"telegram_{action}_button_{scope}",
                 )
                 _upsert_feedback_correction_vector(
                     config=config,
                     message_id=message_id,
                     thread_id=thread_id,
                     corrected_important=corrected_important,
-                    correction_source=f"telegram_{action}_button",
+                    correction_source=f"telegram_{action}_button_{scope}",
                     classification=classification,
                 )
             except Exception as exc:
                 logging.warning("Feedback correction storage failed: %s", exc)
 
         if action == "notimportant":
-            answer_callback_query(token, callback_id, "Marked not important")
-            send_text_message(
-                token,
-                expected_chat_id,
-                "Marked thread as not important. Future notifications for this thread are suppressed.",
-            )
+            if scope == "message":
+                answer_callback_query(token, callback_id, "Muted this email")
+            else:
+                answer_callback_query(token, callback_id, "Muted this thread")
             return
 
         answer_callback_query(token, callback_id, "Marked important")

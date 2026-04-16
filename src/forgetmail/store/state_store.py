@@ -177,6 +177,27 @@ class StateStore:
                 (thread_value, source),
             )
 
+    def mute_message(
+        self,
+        message_id: str,
+        thread_id: str,
+        source: str = "telegram_button",
+    ) -> None:
+        message_value = message_id.strip()
+        thread_value = thread_id.strip()
+        if not message_value or not thread_value:
+            raise ValueError("message_id and thread_id cannot be empty.")
+
+        with self._connect() as conn:
+            conn.execute(
+                (
+                    "INSERT OR REPLACE INTO muted_messages "
+                    "(message_id, thread_id, source, muted_at) "
+                    "VALUES (?, ?, ?, CURRENT_TIMESTAMP)"
+                ),
+                (message_value, thread_value, source),
+            )
+
     def unmute_thread(self, thread_id: str) -> bool:
         thread_value = thread_id.strip()
         if not thread_value:
@@ -184,6 +205,18 @@ class StateStore:
 
         with self._connect() as conn:
             cursor = conn.execute("DELETE FROM muted_threads WHERE thread_id = ?", (thread_value,))
+            return cursor.rowcount > 0
+
+    def unmute_message(self, message_id: str) -> bool:
+        message_value = message_id.strip()
+        if not message_value:
+            return False
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM muted_messages WHERE message_id = ?",
+                (message_value,),
+            )
             return cursor.rowcount > 0
 
     def muted_threads(self, thread_ids: list[str]) -> set[str]:
@@ -194,6 +227,17 @@ class StateStore:
         query = f"SELECT thread_id FROM muted_threads WHERE thread_id IN ({placeholders})"
         with self._connect() as conn:
             rows = conn.execute(query, thread_ids).fetchall()
+
+        return {str(row[0]) for row in rows}
+
+    def muted_messages(self, message_ids: list[str]) -> set[str]:
+        if not message_ids:
+            return set()
+
+        placeholders = ",".join("?" for _ in message_ids)
+        query = f"SELECT message_id FROM muted_messages WHERE message_id IN ({placeholders})"
+        with self._connect() as conn:
+            rows = conn.execute(query, message_ids).fetchall()
 
         return {str(row[0]) for row in rows}
 
@@ -299,6 +343,7 @@ class StateStore:
                 "SELECT COUNT(*) FROM watch_rule_events"
             ).fetchone()[0]
             muted_thread_count = conn.execute("SELECT COUNT(*) FROM muted_threads").fetchone()[0]
+            muted_message_count = conn.execute("SELECT COUNT(*) FROM muted_messages").fetchone()[0]
             feedback_correction_count = conn.execute(
                 "SELECT COUNT(*) FROM feedback_corrections"
             ).fetchone()[0]
@@ -310,6 +355,7 @@ class StateStore:
             "watch_rules": int(watch_rule_count),
             "watch_rule_events": int(watch_rule_event_count),
             "muted_threads": int(muted_thread_count),
+            "muted_messages": int(muted_message_count),
             "feedback_corrections": int(feedback_correction_count),
         }
 

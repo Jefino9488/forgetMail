@@ -71,6 +71,14 @@ CREATE_TABLE_STATEMENTS: tuple[str, ...] = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS muted_messages (
+        message_id TEXT PRIMARY KEY,
+        thread_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        muted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS feedback_corrections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         message_id TEXT NOT NULL,

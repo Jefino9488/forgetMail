@@ -6,6 +6,7 @@ from .bot import (
     prepare_polling_mode,
     send_signal_notifications,
     send_text_message,
+    send_text_message_with_url_button,
     shutdown_client,
 )
 from .models import SignalNotification
@@ -18,6 +19,7 @@ __all__ = [
     "configure_bot_commands",
     "fetch_updates",
     "send_text_message",
+    "send_text_message_with_url_button",
     "answer_callback_query",
     "send_signal_notifications",
 ]

@@ -171,6 +171,23 @@ class AiogramBotClient:
 
         self._run_with_bot(token, _operation)
 
+    def send_text_message_with_url_button(
+        self,
+        token: str,
+        chat_id: int,
+        text: str,
+        *,
+        button_text: str,
+        url: str,
+    ) -> None:
+        async def _operation(bot: Bot) -> None:
+            markup = InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text=button_text, url=url)]]
+            )
+            await bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+
+        self._run_with_bot(token, _operation)
+
     def answer_callback_query(self, token: str, callback_query_id: str, text: str) -> None:
         async def _operation(bot: Bot) -> None:
             await bot.answer_callback_query(
@@ -205,8 +222,22 @@ class AiogramBotClient:
                                 callback_data=f"important:{signal.message_id}:{signal.thread_id}",
                             ),
                             InlineKeyboardButton(
-                                text="Not important",
-                                callback_data=f"notimportant:{signal.message_id}:{signal.thread_id}",
+                                text="Mute email",
+                                callback_data=(
+                                    f"notimportant:{signal.message_id}:{signal.thread_id}:message"
+                                ),
+                            ),
+                            InlineKeyboardButton(
+                                text="Mute thread",
+                                callback_data=(
+                                    f"notimportant:{signal.message_id}:{signal.thread_id}:thread"
+                                ),
+                            ),
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                text="Undo mute",
+                                callback_data=f"undo:{signal.message_id}:{signal.thread_id}",
                             ),
                             InlineKeyboardButton(
                                 text="Reply", callback_data=f"reply:{signal.thread_id}"
