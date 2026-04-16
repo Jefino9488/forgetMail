@@ -59,7 +59,7 @@ ruff format .
 Enable auto-format/lint on commit:
 
 ```bash
-pre-commit install
+pre-commit install --config .github/pre-commit-config.yaml
 ```
 
 ## First-Time Onboarding
