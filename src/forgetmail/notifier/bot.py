@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 
-from aiogram.types import Update
+try:
+    from aiogram.types import Update
+except ModuleNotFoundError:  # pragma: no cover - optional dependency fallback
+    Update = object
 
 from forgetmail.telegram import AiogramBotClient
 
@@ -19,6 +22,8 @@ BOT_COMMANDS: list[dict[str, str]] = [
     },
     {"command": "watchlist", "description": "List active watch rules"},
     {"command": "unwatch", "description": "Delete watch rule: /unwatch <id>"},
+    {"command": "set", "description": "Set runtime options: /set archive on|off"},
+    {"command": "vip", "description": "Manage VIP senders: /vip add|list|remove"},
     {"command": "run", "description": "Run one immediate poll cycle"},
 ]
 

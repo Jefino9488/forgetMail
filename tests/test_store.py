@@ -89,6 +89,32 @@ class StoreFeedbackTests(unittest.TestCase):
             stats = store.stats()
             self.assertEqual(stats.get("muted_messages"), 1)
 
+    def test_vip_sender_roundtrip_normalizes_address(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "state.db"
+            store = StateStore(db_path=db_path)
+            store.initialize()
+
+            store.add_vip_sender("john@company.com", "John Smith")
+
+            vip_rows = store.list_vip_senders()
+            self.assertEqual(len(vip_rows), 1)
+            self.assertEqual(vip_rows[0]["sender_email"], "john@company.com")
+
+            self.assertEqual(store.vip_senders(["john@company.com"]), {"john@company.com"})
+            self.assertTrue(store.remove_vip_sender("John Smith <john@company.com>"))
+
+    def test_cache_value_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "state.db"
+            store = StateStore(db_path=db_path)
+            store.initialize()
+
+            store.set_cache_value("heartbeat_last_sent_date", "2026-04-20")
+            self.assertEqual(store.get_cache_value("heartbeat_last_sent_date"), "2026-04-20")
+            store.delete_cache_value("heartbeat_last_sent_date")
+            self.assertIsNone(store.get_cache_value("heartbeat_last_sent_date"))
+
 
 if __name__ == "__main__":
     unittest.main()

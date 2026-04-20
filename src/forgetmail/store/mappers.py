@@ -28,6 +28,14 @@ def watch_rule_row_to_dict(raw: tuple[object, ...]) -> dict[str, str | float | i
     }
 
 
+def vip_sender_row_to_dict(raw: tuple[object, ...]) -> dict[str, str]:
+    return {
+        "sender_email": str(raw[0]),
+        "display_name": str(raw[1]),
+        "created_at": str(raw[2]),
+    }
+
+
 def signal_event_row_to_dict(raw: tuple[object, ...]) -> dict[str, str | float]:
     return {
         "message_id": str(raw[0]),

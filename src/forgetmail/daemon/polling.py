@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from email.utils import parseaddr
 from typing import Any
 
 from forgetmail.classifier import LLMError, classify_messages
@@ -13,56 +14,24 @@ from forgetmail.notifier import SignalNotification, send_signal_notifications
 from forgetmail.poller import (
     fetch_message_candidates,
     list_recent_unread_message_ids,
+    apply_message_label_changes,
     mark_messages_read,
 )
 from forgetmail.store import StateStore
 from forgetmail.vector_store import VectorStore, VectorStoreError
 
+from .callbacks import _corrections_vector_store_from_config
+from .common import _distance_to_similarity, _looks_like_newsletter
+
 OMITTED_REASON = "Classifier omitted this message"
 
 
-def _looks_like_newsletter(sender: str, subject: str, snippet: str) -> bool:
-    merged = f"{sender} {subject} {snippet}".lower()
-    newsletter_markers = [
-        "newsletter",
-        "digest",
-        "unsubscribe",
-        "sponsored",
-        "promotion",
-        "theresanaiforthat",
-    ]
-    personal_markers = [
-        "can you",
-        "please",
-        "asap",
-        "urgent",
-        "meeting",
-        "schedule",
-        "reply",
-        "action required",
-    ]
-    has_newsletter_signal = any(item in merged for item in newsletter_markers)
-    has_personal_signal = any(item in merged for item in personal_markers)
-    return has_newsletter_signal and not has_personal_signal
-
-
-def _distance_to_similarity(distance_value: Any) -> float | None:
-    try:
-        distance = float(distance_value)
-    except (TypeError, ValueError):
-        return None
-    return max(0.0, min(1.0, 1.0 - distance))
-
-
-def _corrections_vector_store_from_config(
-    embeddings_cfg: dict[str, Any],
-) -> VectorStore:
-    corrections_cfg = dict(embeddings_cfg)
-    corrections_cfg["collection"] = (
-        str(embeddings_cfg.get("corrections_collection", "email_corrections")).strip()
-        or "email_corrections"
-    )
-    return VectorStore.from_config(corrections_cfg)
+def _normalize_sender_email(sender: str) -> str:
+    _display_name, email_address = parseaddr(sender)
+    normalized = email_address.strip().lower()
+    if normalized:
+        return normalized
+    return sender.strip().lower()
 
 
 def _build_vector_query_hints(
@@ -281,6 +250,14 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
     llm_cfg = config["llm"]
     embeddings_cfg = config.get("embeddings", {})
     threshold = float(llm_cfg.get("importance_threshold", 0.65))
+    auto_label_enabled = bool(gmail_cfg.get("auto_label_enabled", True))
+    archive_noise = bool(gmail_cfg.get("archive_noise", False))
+    signal_label_name = (
+        str(gmail_cfg.get("signal_label", "forgetMail/signal")).strip() or "forgetMail/signal"
+    )
+    noise_label_name = (
+        str(gmail_cfg.get("noise_label", "forgetMail/noise")).strip() or "forgetMail/noise"
+    )
     logging.debug(
         "Poll settings: lookback_days=%s max_messages_per_poll=%s threshold=%.2f model=%s provider=%s",
         gmail_cfg.get("lookback_days"),
@@ -436,6 +413,9 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
     class_map = {item.message_id: item for item in classifications}
     muted_threads = store.muted_threads([item.thread_id for item in candidates])
     muted_messages = store.muted_messages([item.message_id for item in candidates])
+    vip_sender_emails = store.vip_senders(
+        [_normalize_sender_email(item.sender) for item in candidates]
+    )
 
     provider_name = str(llm_cfg.get("provider", "unknown"))
     model_name = str(llm_cfg.get("model", "unknown"))
@@ -447,6 +427,8 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
 
     adjusted_by_id: dict[str, tuple[bool, float, str]] = {}
     for message in candidates:
+        sender_email = _normalize_sender_email(message.sender)
+        is_vip_sender = sender_email in vip_sender_emails
         result = class_map.get(message.message_id)
         if result is None:
             important = False
@@ -459,6 +441,11 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
 
         if reason == OMITTED_REASON:
             omitted_ids.add(message.message_id)
+
+        if is_vip_sender:
+            important = True
+            score = max(score, threshold)
+            reason = f"{reason} | VIP sender bypass"
 
         matched_rules = store.match_watch_rules(
             sender=message.sender,
@@ -510,7 +497,7 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
                 adjusted_score,
             )
 
-        if message.thread_id in muted_threads:
+        if not is_vip_sender and message.thread_id in muted_threads:
             adjusted_score = max(0.0, adjusted_score - 1.0)
             important = False
             adjusted_reason = f"{adjusted_reason} | muted thread"
@@ -521,7 +508,7 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
                 adjusted_score,
             )
 
-        if message.message_id in muted_messages:
+        if not is_vip_sender and message.message_id in muted_messages:
             adjusted_score = max(0.0, adjusted_score - 1.0)
             important = False
             adjusted_reason = f"{adjusted_reason} | muted message"
@@ -532,7 +519,9 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
                 adjusted_score,
             )
 
-        if _looks_like_newsletter(message.sender, message.subject, message.snippet):
+        if not is_vip_sender and _looks_like_newsletter(
+            message.sender, message.subject, message.snippet
+        ):
             adjusted_score = min(adjusted_score, 0.15)
             important = False
             adjusted_reason = f"{adjusted_reason} | newsletter pattern"
@@ -586,6 +575,41 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
         "Recorded classification rows=%s; proceeding with signal filtering",
         len(classification_rows),
     )
+
+    if auto_label_enabled:
+        signal_ids = [
+            item.message_id
+            for item in candidates
+            if adjusted_by_id.get(item.message_id, (False, 0.0, ""))[0]
+        ]
+        noise_ids = [
+            item.message_id
+            for item in candidates
+            if item.message_id not in signal_ids and item.message_id not in omitted_ids
+        ]
+        if signal_ids:
+            try:
+                updated_signal_ids = apply_message_label_changes(
+                    signal_ids,
+                    add_label_names=[signal_label_name],
+                )
+                logging.debug("Applied signal label to messages=%s", len(updated_signal_ids))
+            except Exception as exc:
+                logging.warning("Signal label update failed; continuing: %s", exc)
+        if noise_ids:
+            try:
+                updated_noise_ids = apply_message_label_changes(
+                    noise_ids,
+                    add_label_names=[noise_label_name],
+                    remove_label_names=["INBOX"] if archive_noise else None,
+                )
+                logging.debug(
+                    "Applied noise label to messages=%s archive_enabled=%s",
+                    len(updated_noise_ids),
+                    archive_noise,
+                )
+            except Exception as exc:
+                logging.warning("Noise label/archive update failed; continuing: %s", exc)
 
     adjusted_signals: list[SignalNotification] = []
     for message in candidates:
@@ -662,6 +686,8 @@ def poll_once(config: dict, store: StateStore, telegram_token: str) -> dict[str,
         "signals": len(signals),
         "sent": len(sent_ids),
         "gmail_marked_read": len(read_marked_ids),
+        "gmail_labelled": len(candidates) if auto_label_enabled else 0,
+        "gmail_archived": (len(candidates) if auto_label_enabled and archive_noise else 0),
         "marked_seen": len(rows_to_mark),
         "omitted_for_retry": len(omitted_ids),
         "llm_failed": 0,

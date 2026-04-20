@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from email.utils import parseaddr
 from pathlib import Path
 
 from forgetmail.config import ensure_config_dir
@@ -11,6 +12,7 @@ from .mappers import (
     classification_event_row_to_dict,
     feedback_correction_row_to_dict,
     signal_event_row_to_dict,
+    vip_sender_row_to_dict,
     watch_rule_row_to_dict,
 )
 from .schema import apply_schema
@@ -25,6 +27,40 @@ class StateStore:
         ensure_config_dir()
         with self._connect() as conn:
             apply_schema(conn)
+
+    def get_cache_value(self, key: str) -> str | None:
+        cache_key = key.strip()
+        if not cache_key:
+            return None
+
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM config_cache WHERE key = ?",
+                (cache_key,),
+            ).fetchone()
+
+        if row is None:
+            return None
+        return str(row[0])
+
+    def set_cache_value(self, key: str, value: str) -> None:
+        cache_key = key.strip()
+        if not cache_key:
+            raise ValueError("Cache key cannot be empty.")
+
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO config_cache (key, value) VALUES (?, ?)",
+                (cache_key, str(value)),
+            )
+
+    def delete_cache_value(self, key: str) -> None:
+        cache_key = key.strip()
+        if not cache_key:
+            return
+
+        with self._connect() as conn:
+            conn.execute("DELETE FROM config_cache WHERE key = ?", (cache_key,))
 
     def unseen_ids(self, message_ids: list[str]) -> set[str]:
         if not message_ids:
@@ -153,7 +189,6 @@ class StateStore:
     def record_watch_rule_events(self, rows: list[tuple[int, str, str, float]]) -> None:
         if not rows:
             return
-
         with self._connect() as conn:
             conn.executemany(
                 (
@@ -162,6 +197,64 @@ class StateStore:
                 ),
                 rows,
             )
+
+    def add_vip_sender(self, sender_email: str, display_name: str = "") -> bool:
+        _display_name, parsed_email = parseaddr(sender_email)
+        email_value = parsed_email.strip().lower()
+        if not email_value:
+            email_value = sender_email.strip().lower()
+        display_value = display_name.strip()
+        if not email_value:
+            raise ValueError("sender_email cannot be empty.")
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "INSERT OR REPLACE INTO vip_senders (sender_email, display_name) VALUES (?, ?)",
+                (email_value, display_value),
+            )
+            return cursor.rowcount > 0
+
+    def remove_vip_sender(self, sender_email: str) -> bool:
+        _display_name, parsed_email = parseaddr(sender_email)
+        email_value = parsed_email.strip().lower()
+        if not email_value:
+            email_value = sender_email.strip().lower()
+        if not email_value:
+            return False
+
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM vip_senders WHERE sender_email = ?", (email_value,))
+            return cursor.rowcount > 0
+
+    def list_vip_senders(self) -> list[dict[str, str]]:
+        with self._connect() as conn:
+            raw_rows = conn.execute(
+                "SELECT sender_email, display_name, created_at FROM vip_senders ORDER BY sender_email"
+            ).fetchall()
+
+        return [vip_sender_row_to_dict(raw) for raw in raw_rows]
+
+    def vip_senders(self, sender_emails: list[str]) -> set[str]:
+        if not sender_emails:
+            return set()
+
+        normalized: list[str] = []
+        for item in sender_emails:
+            _display_name, parsed_email = parseaddr(item)
+            email_value = parsed_email.strip().lower()
+            if not email_value:
+                email_value = item.strip().lower()
+            if email_value:
+                normalized.append(email_value)
+        if not normalized:
+            return set()
+
+        placeholders = ",".join("?" for _ in normalized)
+        query = f"SELECT sender_email FROM vip_senders WHERE sender_email IN ({placeholders})"
+        with self._connect() as conn:
+            rows = conn.execute(query, normalized).fetchall()
+
+        return {str(row[0]).lower() for row in rows}
 
     def mute_thread(self, thread_id: str, source: str = "telegram_button") -> None:
         thread_value = thread_id.strip()
@@ -344,6 +437,7 @@ class StateStore:
             ).fetchone()[0]
             muted_thread_count = conn.execute("SELECT COUNT(*) FROM muted_threads").fetchone()[0]
             muted_message_count = conn.execute("SELECT COUNT(*) FROM muted_messages").fetchone()[0]
+            vip_sender_count = conn.execute("SELECT COUNT(*) FROM vip_senders").fetchone()[0]
             feedback_correction_count = conn.execute(
                 "SELECT COUNT(*) FROM feedback_corrections"
             ).fetchone()[0]
@@ -356,6 +450,7 @@ class StateStore:
             "watch_rule_events": int(watch_rule_event_count),
             "muted_threads": int(muted_thread_count),
             "muted_messages": int(muted_message_count),
+            "vip_senders": int(vip_sender_count),
             "feedback_corrections": int(feedback_correction_count),
         }
 

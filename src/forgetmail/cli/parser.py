@@ -24,6 +24,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate saved credentials and config",
     )
     parser.add_argument(
+        "--install-service",
+        action="store_true",
+        help="Install or update the user-level systemd service",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable verbose debug logging",

@@ -60,4 +60,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "file": "",
         "http_debug": False,
     },
+    "service": {
+        "install_type": "user",
+        "linger": True,
+    },
+    "health": {
+        "heartbeat_enabled": True,
+        "heartbeat_local_time": "09:00",
+        "watchdog_failure_threshold": 3,
+        "watchdog_retry_base_seconds": 2,
+        "watchdog_retry_max_seconds": 30,
+    },
 }

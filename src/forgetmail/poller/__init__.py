@@ -1,4 +1,5 @@
 from .service import (
+    apply_message_label_changes,
     fetch_message_candidates,
     fetch_recent_unread_messages,
     list_recent_unread_message_ids,
@@ -10,4 +11,5 @@ __all__ = [
     "fetch_message_candidates",
     "fetch_recent_unread_messages",
     "mark_messages_read",
+    "apply_message_label_changes",
 ]

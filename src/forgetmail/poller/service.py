@@ -85,3 +85,48 @@ def mark_messages_read(message_ids: list[str]) -> set[str]:
 
     logging.debug("Poller: marked read successfully count=%s", len(marked))
     return marked
+
+
+def apply_message_label_changes(
+    message_ids: list[str],
+    *,
+    add_label_names: list[str] | None = None,
+    remove_label_names: list[str] | None = None,
+) -> set[str]:
+    if not message_ids:
+        return set()
+
+    logging.debug(
+        "Poller: applying label changes count=%s add=%s remove=%s",
+        len(message_ids),
+        add_label_names,
+        remove_label_names,
+    )
+    creds = get_credentials(allow_reauth=False)
+    gmail = GmailClient(creds, timeout_seconds=30)
+
+    add_label_ids = [gmail.ensure_label_id(name) for name in (add_label_names or [])]
+    remove_label_ids: list[str] = []
+    for name in remove_label_names or []:
+        label_name = name.strip()
+        if not label_name:
+            continue
+        if label_name.upper() == "INBOX":
+            remove_label_ids.append("INBOX")
+            continue
+        remove_label_ids.append(gmail.ensure_label_id(label_name))
+
+    changed: set[str] = set()
+    for message_id in message_ids:
+        try:
+            gmail.modify_message_labels(
+                message_id,
+                add_labels=add_label_ids,
+                remove_labels=remove_label_ids,
+            )
+            changed.add(message_id)
+        except Exception:
+            logging.exception("Poller: failed to update labels message_id=%s", message_id)
+
+    logging.debug("Poller: label updates applied successfully count=%s", len(changed))
+    return changed

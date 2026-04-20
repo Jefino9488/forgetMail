@@ -8,7 +8,15 @@ class ConfigError(RuntimeError):
 
 
 def validate_config(config: dict[str, Any]) -> None:
-    required_sections = ("telegram", "gmail", "llm", "embeddings", "log")
+    required_sections = (
+        "telegram",
+        "service",
+        "health",
+        "gmail",
+        "llm",
+        "embeddings",
+        "log",
+    )
     for section in required_sections:
         if section not in config or not isinstance(config[section], dict):
             raise ConfigError(f"Missing or invalid [{section}] section in config.")
@@ -32,6 +40,55 @@ def validate_config(config: dict[str, Any]) -> None:
     max_messages = config["gmail"].get("max_messages_per_poll")
     if not isinstance(max_messages, int) or max_messages < 1:
         raise ConfigError("gmail.max_messages_per_poll must be an integer >= 1.")
+
+    auto_label_enabled = config["gmail"].get("auto_label_enabled", True)
+    if not isinstance(auto_label_enabled, bool):
+        raise ConfigError("gmail.auto_label_enabled must be true or false.")
+
+    archive_noise = config["gmail"].get("archive_noise", False)
+    if not isinstance(archive_noise, bool):
+        raise ConfigError("gmail.archive_noise must be true or false.")
+
+    signal_label = config["gmail"].get("signal_label", "forgetMail/signal")
+    if not isinstance(signal_label, str) or not signal_label.strip():
+        raise ConfigError("gmail.signal_label must be a non-empty string.")
+
+    noise_label = config["gmail"].get("noise_label", "forgetMail/noise")
+    if not isinstance(noise_label, str) or not noise_label.strip():
+        raise ConfigError("gmail.noise_label must be a non-empty string.")
+
+    service_cfg = config["service"]
+    install_type = service_cfg.get("install_type", "user")
+    if not isinstance(install_type, str) or install_type.strip().lower() not in {
+        "user",
+        "system",
+    }:
+        raise ConfigError("service.install_type must be 'user' or 'system'.")
+
+    linger = service_cfg.get("linger", True)
+    if not isinstance(linger, bool):
+        raise ConfigError("service.linger must be true or false.")
+
+    health_cfg = config["health"]
+    heartbeat_enabled = health_cfg.get("heartbeat_enabled", True)
+    if not isinstance(heartbeat_enabled, bool):
+        raise ConfigError("health.heartbeat_enabled must be true or false.")
+
+    heartbeat_local_time = health_cfg.get("heartbeat_local_time", "09:00")
+    if not isinstance(heartbeat_local_time, str) or not heartbeat_local_time.strip():
+        raise ConfigError("health.heartbeat_local_time must be a non-empty string.")
+
+    watchdog_failure_threshold = health_cfg.get("watchdog_failure_threshold", 3)
+    if not isinstance(watchdog_failure_threshold, int) or watchdog_failure_threshold < 1:
+        raise ConfigError("health.watchdog_failure_threshold must be an integer >= 1.")
+
+    watchdog_retry_base_seconds = health_cfg.get("watchdog_retry_base_seconds", 2)
+    if not isinstance(watchdog_retry_base_seconds, int) or watchdog_retry_base_seconds < 1:
+        raise ConfigError("health.watchdog_retry_base_seconds must be an integer >= 1.")
+
+    watchdog_retry_max_seconds = health_cfg.get("watchdog_retry_max_seconds", 30)
+    if not isinstance(watchdog_retry_max_seconds, int) or watchdog_retry_max_seconds < 1:
+        raise ConfigError("health.watchdog_retry_max_seconds must be an integer >= 1.")
 
     provider = config["llm"].get("provider")
     if not isinstance(provider, str) or not provider.strip():

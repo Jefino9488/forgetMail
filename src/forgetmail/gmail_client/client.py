@@ -75,6 +75,48 @@ class GmailClient:
             params={"format": "full"},
         )
 
+    def list_labels(self) -> list[dict[str, Any]]:
+        payload = self._request("GET", "/labels")
+        labels = payload.get("labels", [])
+        if not isinstance(labels, list):
+            return []
+        return [item for item in labels if isinstance(item, dict)]
+
+    def get_label_id(self, label_name: str) -> str | None:
+        target = label_name.strip().lower()
+        if not target:
+            return None
+
+        for label in self.list_labels():
+            candidate_name = str(label.get("name", "")).strip().lower()
+            candidate_id = str(label.get("id", "")).strip()
+            if candidate_name == target or candidate_id.lower() == target:
+                return candidate_id or None
+        return None
+
+    def ensure_label_id(self, label_name: str) -> str:
+        label_value = label_name.strip()
+        if not label_value:
+            raise ValueError("Label name cannot be empty.")
+
+        existing_label_id = self.get_label_id(label_value)
+        if existing_label_id:
+            return existing_label_id
+
+        payload = self._request(
+            "POST",
+            "/labels",
+            json_body={
+                "name": label_value,
+                "labelListVisibility": "labelShow",
+                "messageListVisibility": "show",
+            },
+        )
+        label_id = str(payload.get("id", "")).strip()
+        if not label_id:
+            raise RuntimeError(f"Could not create Gmail label: {label_value}")
+        return label_id
+
     def modify_message_labels(
         self,
         message_id: str,
