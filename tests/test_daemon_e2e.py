@@ -6,7 +6,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from forgetmail import daemon
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from forgetmail.daemon import ask as daemon_ask
+from forgetmail.daemon import callbacks as daemon_callbacks
+from forgetmail.daemon import commands as daemon_commands
 from forgetmail.store import StateStore
 
 
@@ -60,48 +69,53 @@ class DaemonE2ETests(unittest.TestCase):
         sent_messages: list[tuple[str, int, str]] = []
         sent_button_messages: list[tuple[str, int, str, str, str]] = []
 
-        with (
-            patch(
-                "forgetmail.daemon.EmbeddingClient.from_config",
-                return_value=_FakeEmbeddingClient(),
-            ),
-            patch(
-                "forgetmail.daemon.VectorStore.from_config",
-                return_value=_FakeVectorStore(),
-            ),
-            patch(
-                "forgetmail.daemon.call_answer_json",
-                return_value={
-                    "answer": "Budget info is in Alice's message.",
-                    "confidence": 0.87,
-                    "citations": [
-                        {
-                            "message_id": "m1",
-                            "subject": "Budget request",
-                            "why": "contains budget deadline",
-                        }
-                    ],
-                },
-            ),
-            patch(
-                "forgetmail.daemon.send_text_message",
-                side_effect=lambda token, chat_id, text: sent_messages.append(
-                    (token, chat_id, text)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            store = StateStore(db_path=Path(tmp_dir) / "state.db")
+            store.initialize()
+
+            with (
+                patch(
+                    "forgetmail.daemon.ask.EmbeddingClient.from_config",
+                    return_value=_FakeEmbeddingClient(),
                 ),
-            ),
-            patch(
-                "forgetmail.daemon.send_text_message_with_url_button",
-                side_effect=lambda token, chat_id, text, *, button_text, url: (
-                    sent_button_messages.append((token, chat_id, text, button_text, url))
+                patch(
+                    "forgetmail.daemon.ask.VectorStore.from_config",
+                    return_value=_FakeVectorStore(),
                 ),
-            ),
-        ):
-            daemon._handle_ask_command(
-                token="tg-token",
-                expected_chat_id=123,
-                text="/ask where is the latest budget request",
-                config=config,
-            )
+                patch(
+                    "forgetmail.daemon.ask.call_answer_json",
+                    return_value={
+                        "answer": "Budget info is in Alice's message.",
+                        "confidence": 0.87,
+                        "citations": [
+                            {
+                                "message_id": "m1",
+                                "subject": "Budget request",
+                                "why": "contains budget deadline",
+                            }
+                        ],
+                    },
+                ),
+                patch(
+                    "forgetmail.daemon.telegram_io.send_text_message",
+                    side_effect=lambda token, chat_id, text: sent_messages.append(
+                        (token, chat_id, text)
+                    ),
+                ),
+                patch(
+                    "forgetmail.daemon.telegram_io.send_text_message_with_url_button",
+                    side_effect=lambda token, chat_id, text, *, button_text, url: (
+                        sent_button_messages.append((token, chat_id, text, button_text, url))
+                    ),
+                ),
+            ):
+                daemon_ask._handle_ask_command(
+                    token="tg-token",
+                    expected_chat_id=123,
+                    text="/ask where is the latest budget request",
+                    config=config,
+                    store=store,
+                )
 
         self.assertEqual(len(sent_messages), 0)
         self.assertEqual(len(sent_button_messages), 1)
@@ -131,18 +145,19 @@ class DaemonE2ETests(unittest.TestCase):
         }
 
         sent_messages: list[tuple[str, int, str]] = []
+        sent_button_messages: list[tuple[str, int, str, str, str]] = []
 
         with (
             patch(
-                "forgetmail.daemon.EmbeddingClient.from_config",
+                "forgetmail.daemon.ask.EmbeddingClient.from_config",
                 return_value=_FakeEmbeddingClient(),
             ),
             patch(
-                "forgetmail.daemon.VectorStore.from_config",
+                "forgetmail.daemon.ask.VectorStore.from_config",
                 return_value=_FakeVectorStore(),
             ),
             patch(
-                "forgetmail.daemon.call_answer_json",
+                "forgetmail.daemon.ask.call_answer_json",
                 return_value={
                     "answer": "There might be one related result.",
                     "confidence": 0.42,
@@ -156,29 +171,39 @@ class DaemonE2ETests(unittest.TestCase):
                 },
             ),
             patch(
-                "forgetmail.daemon.send_text_message",
+                "forgetmail.daemon.telegram_io.send_text_message",
                 side_effect=lambda token, chat_id, text: sent_messages.append(
                     (token, chat_id, text)
                 ),
             ),
             patch(
-                "forgetmail.daemon.send_text_message_with_url_button",
-                return_value=None,
+                "forgetmail.daemon.telegram_io.send_text_message_with_url_button",
+                side_effect=lambda token, chat_id, text, *, button_text, url: (
+                    sent_button_messages.append((token, chat_id, text, button_text, url))
+                ),
             ),
         ):
-            daemon._handle_ask_command(
-                token="tg-token",
-                expected_chat_id=123,
-                text="/ask anything about budget",
-                config=config,
-            )
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                store = StateStore(db_path=Path(tmp_dir) / "state.db")
+                store.initialize()
 
-        self.assertEqual(len(sent_messages), 1)
-        _token, chat_id, text = sent_messages[0]
+                daemon_ask._handle_ask_command(
+                    token="tg-token",
+                    expected_chat_id=123,
+                    text="/ask anything about budget",
+                    config=config,
+                    store=store,
+                )
+
+        self.assertEqual(len(sent_messages), 0)
+        self.assertEqual(len(sent_button_messages), 1)
+        _token, chat_id, text, button_text, button_url = sent_button_messages[0]
         self.assertEqual(chat_id, 123)
         self.assertIn("A: unsure", text)
         self.assertIn("Confidence: 0.42 (low)", text)
         self.assertIn("Tip: refine your query", text)
+        self.assertEqual(button_text, "Open top source")
+        self.assertEqual(button_url, "https://mail.google.com/mail/u/0/#all/t1")
 
     def test_feedback_callback_important_records_correction_and_unmutes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -215,19 +240,19 @@ class DaemonE2ETests(unittest.TestCase):
 
             with (
                 patch(
-                    "forgetmail.daemon._upsert_feedback_correction_vector",
+                    "forgetmail.daemon.callbacks._upsert_feedback_correction_vector",
                     return_value=None,
                 ),
                 patch(
-                    "forgetmail.daemon.send_text_message",
+                    "forgetmail.daemon.telegram_io.send_text_message",
                     side_effect=lambda _token, _chat_id, text: sent_messages.append(text),
                 ),
                 patch(
-                    "forgetmail.daemon.answer_callback_query",
+                    "forgetmail.daemon.callbacks.answer_callback_query",
                     side_effect=lambda _token, _cb_id, text: callback_acks.append(text),
                 ),
             ):
-                daemon._handle_callback_query(
+                daemon_callbacks._handle_callback_query(
                     token="tg-token",
                     config={"embeddings": {"enabled": False}},
                     store=store,
@@ -278,19 +303,19 @@ class DaemonE2ETests(unittest.TestCase):
 
             with (
                 patch(
-                    "forgetmail.daemon._upsert_feedback_correction_vector",
+                    "forgetmail.daemon.callbacks._upsert_feedback_correction_vector",
                     return_value=None,
                 ),
                 patch(
-                    "forgetmail.daemon.send_text_message",
+                    "forgetmail.daemon.telegram_io.send_text_message",
                     side_effect=lambda _token, _chat_id, text: sent_messages.append(text),
                 ),
                 patch(
-                    "forgetmail.daemon.answer_callback_query",
+                    "forgetmail.daemon.callbacks.answer_callback_query",
                     side_effect=lambda _token, _cb_id, text: callback_acks.append(text),
                 ),
             ):
-                daemon._handle_callback_query(
+                daemon_callbacks._handle_callback_query(
                     token="tg-token",
                     config={"embeddings": {"enabled": False}},
                     store=store,
@@ -338,16 +363,16 @@ class DaemonE2ETests(unittest.TestCase):
 
             with (
                 patch(
-                    "forgetmail.daemon._upsert_feedback_correction_vector",
+                    "forgetmail.daemon.callbacks._upsert_feedback_correction_vector",
                     return_value=None,
                 ),
-                patch("forgetmail.daemon.send_text_message", return_value=None),
+                patch("forgetmail.daemon.telegram_io.send_text_message", return_value=None),
                 patch(
-                    "forgetmail.daemon.answer_callback_query",
+                    "forgetmail.daemon.callbacks.answer_callback_query",
                     side_effect=lambda _token, _cb_id, text: callback_acks.append(text),
                 ),
             ):
-                daemon._handle_callback_query(
+                daemon_callbacks._handle_callback_query(
                     token="tg-token",
                     config={"embeddings": {"enabled": False}},
                     store=store,
@@ -377,13 +402,13 @@ class DaemonE2ETests(unittest.TestCase):
             callback_acks: list[str] = []
 
             with (
-                patch("forgetmail.daemon.send_text_message", return_value=None),
+                patch("forgetmail.daemon.telegram_io.send_text_message", return_value=None),
                 patch(
-                    "forgetmail.daemon.answer_callback_query",
+                    "forgetmail.daemon.callbacks.answer_callback_query",
                     side_effect=lambda _token, _cb_id, text: callback_acks.append(text),
                 ),
             ):
-                daemon._handle_callback_query(
+                daemon_callbacks._handle_callback_query(
                     token="tg-token",
                     config={"embeddings": {"enabled": False}},
                     store=store,
@@ -394,6 +419,43 @@ class DaemonE2ETests(unittest.TestCase):
             self.assertEqual(store.muted_messages(["m9"]), set())
             self.assertEqual(store.muted_threads(["t9"]), set())
             self.assertIn("Mute removed", callback_acks)
+
+    def test_set_archive_command_updates_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "state.db"
+            store = StateStore(db_path=db_path)
+            store.initialize()
+            config = {"gmail": {"archive_noise": False}}
+
+            response = daemon_commands._handle_set_command("/set archive on", config)
+
+            self.assertIn("now on", response)
+            self.assertTrue(config["gmail"]["archive_noise"])
+
+    def test_vip_command_add_list_remove(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "state.db"
+            store = StateStore(db_path=db_path)
+            store.initialize()
+
+            add_response = daemon_commands._handle_vip_command(
+                "/vip add John Smith <john@company.com>",
+                store,
+            )
+            self.assertIn("john@company.com", add_response)
+            self.assertIn("John Smith", add_response)
+
+            listed = daemon_commands._handle_vip_command("/vip list", store)
+            self.assertIn("john@company.com", listed)
+
+            remove_response = daemon_commands._handle_vip_command(
+                "/vip remove john@company.com",
+                store,
+            )
+            self.assertIn("removed", remove_response)
+
+            listed_again = daemon_commands._handle_vip_command("/vip list", store)
+            self.assertIn("No VIP senders", listed_again)
 
 
 if __name__ == "__main__":
