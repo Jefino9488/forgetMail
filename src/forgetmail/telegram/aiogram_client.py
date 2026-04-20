@@ -6,8 +6,25 @@ from dataclasses import dataclass
 import threading
 from typing import Any, Awaitable, Callable, TypeVar
 
-from aiogram import Bot
-from aiogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
+try:
+    from aiogram import Bot
+    from aiogram.types import (
+        BotCommand,
+        InlineKeyboardButton,
+        InlineKeyboardMarkup,
+        Update,
+    )
+except ModuleNotFoundError:  # pragma: no cover - optional dependency fallback
+
+    class _MissingAiogram:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise RuntimeError("aiogram is required for Telegram features.")
+
+    Bot = _MissingAiogram
+    BotCommand = _MissingAiogram
+    InlineKeyboardButton = _MissingAiogram
+    InlineKeyboardMarkup = _MissingAiogram
+    Update = Any
 
 T = TypeVar("T")
 

@@ -35,8 +35,16 @@ class LLMValidationTests(unittest.TestCase):
             "answer": "It is likely in the Monday thread.",
             "confidence": 0.74,
             "citations": [
-                {"message_id": "m1", "subject": "Monday update", "why": "same timeline"},
-                {"message_id": "m2", "subject": "Planning", "why": "mentions deliverable"},
+                {
+                    "message_id": "m1",
+                    "subject": "Monday update",
+                    "why": "same timeline",
+                },
+                {
+                    "message_id": "m2",
+                    "subject": "Planning",
+                    "why": "mentions deliverable",
+                },
             ],
         }
 
